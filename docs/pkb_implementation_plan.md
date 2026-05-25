@@ -83,8 +83,8 @@ Make the scaffolded service deployable to Kubernetes running on a virtual machin
 
 Tasks:
 
-- Add a production-oriented Dockerfile for the Spring Boot service.
-- Add Kubernetes manifests or a Helm chart for Deployment, Service, ConfigMap, Secret references, readiness probe, liveness probe, resource requests, and resource limits.
+- Build the service image with Gradle Jib using a branch-and-revision tag.
+- Add the Helm chart in the separate `Bio-Compass/bio-compass-helm` repository with Deployment, Service, ConfigMap, Secret references, readiness probe, liveness probe, resource requests, and resource limits.
 - Use the service health endpoint for Kubernetes probes.
 - Target a single Linux virtual machine running a lightweight Kubernetes distribution such as k3s for the first deployment path.
 - Document VM prerequisites, image build, image push or local image loading, namespace creation, deployment, verification, log inspection, and rollback commands.

@@ -15,7 +15,7 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 })
 public class PkbServiceApplication {
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SpringApplication.run(PkbServiceApplication.class, args);
     }
 }
