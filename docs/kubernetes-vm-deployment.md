@@ -93,6 +93,7 @@ The Helm chart reference can be overridden with repository variables:
 
 - `PKB_SERVICE_HELM_CHART`: OCI chart reference. Defaults to `oci://ghcr.io/bio-compass/charts/pkb-service`.
 - `PKB_SERVICE_HELM_CHART_VERSION`: optional chart version.
+- `HELM_DIFF_VERSION`: optional pinned `databus23/helm-diff` plugin version. Defaults to `v3.13.2`.
 
 The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass` namespace after Helm upgrade.
 
