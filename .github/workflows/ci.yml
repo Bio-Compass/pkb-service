@@ -19,6 +19,7 @@ env:
   SERVICE_NAME: pkb-service
   HELM_CHART: ${{ vars.PKB_SERVICE_HELM_CHART || 'oci://ghcr.io/bio-compass/charts/pkb-service' }}
   HELM_CHART_VERSION: ${{ vars.PKB_SERVICE_HELM_CHART_VERSION || '' }}
+  HELM_DIFF_VERSION: ${{ vars.HELM_DIFF_VERSION || 'v3.13.2' }}
 
 jobs:
   test:
@@ -149,7 +150,7 @@ jobs:
         run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
 
       - name: Install Helm diff
-        run: helm plugin install https://github.com/databus23/helm-diff
+        run: helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}" --verify=false
 
       - name: Show Helm diff
         id: diff
