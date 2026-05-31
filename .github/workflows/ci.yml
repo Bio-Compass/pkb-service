@@ -21,6 +21,7 @@ env:
   HELM_CHART_VERSION: ${{ vars.PKB_SERVICE_HELM_CHART_VERSION || '' }}
   HELM_VERSION: ${{ vars.HELM_VERSION || 'v3.19.2' }}
   HELM_DIFF_VERSION: ${{ vars.HELM_DIFF_VERSION || 'v3.13.2' }}
+  HELM_REGISTRY_USERNAME: ${{ vars.HELM_REGISTRY_USERNAME || github.actor }}
 
 jobs:
   test:
@@ -150,22 +151,38 @@ jobs:
       - name: Log in to Helm registry
         env:
           HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
-        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
+        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
 
       - name: Install Helm diff
         run: helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}"
 
-      - name: Show Helm diff
-        id: diff
+      - name: Resolve chart version arguments
+        id: chart-args
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
             chart_version_args=(--version "${HELM_CHART_VERSION}")
           fi
 
+          printf 'args=' >> "${GITHUB_OUTPUT}"
+          printf '%q ' "${chart_version_args[@]}" >> "${GITHUB_OUTPUT}"
+          printf '\n' >> "${GITHUB_OUTPUT}"
+
+      - name: Verify Helm chart access
+        run: |
+          if ! helm show chart "${HELM_CHART}" ${{ steps.chart-args.outputs.args }}; then
+            echo "Unable to read Helm chart ${HELM_CHART} from ${REGISTRY}." >&2
+            echo "Grant the pkb-service workflow access to the chart package or set BIO_COMPASS_HELM_TOKEN to a classic PAT with read:packages." >&2
+            echo "If BIO_COMPASS_HELM_TOKEN belongs to a different GitHub user than the workflow actor, set HELM_REGISTRY_USERNAME to that username." >&2
+            exit 1
+          fi
+
+      - name: Show Helm diff
+        id: diff
+        run: |
           set +e
           helm diff upgrade "${SERVICE_NAME}" "${HELM_CHART}" \
-            "${chart_version_args[@]}" \
+            ${{ steps.chart-args.outputs.args }} \
             --install \
             --allow-unreleased \
             --detailed-exitcode \
@@ -273,7 +290,7 @@ jobs:
       - name: Log in to Helm registry
         env:
           HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
-        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
+        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
 
       - name: Deploy service
         run: |
@@ -355,7 +372,7 @@ jobs:
       - name: Log in to Helm registry
         env:
           HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
-        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
+        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
 
       - name: Deploy service
         run: |
