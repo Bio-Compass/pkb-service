@@ -17,6 +17,8 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ghcr.io/bio-compass/pkb-service
   SERVICE_NAME: pkb-service
+  HELM_REPOSITORY: ${{ vars.BIO_COMPASS_HELM_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
+  HELM_REPOSITORY_REF: ${{ vars.BIO_COMPASS_HELM_REF || 'main' }}
 
 jobs:
   test:
@@ -97,12 +99,45 @@ jobs:
       K8S_NAMESPACE: bio-compass
 
     steps:
+      - name: Validate deployment secrets
+        env:
+          BIO_COMPASS_HELM_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN }}
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          if [ -z "${BIO_COMPASS_HELM_TOKEN}" ]; then
+            echo "BIO_COMPASS_HELM_TOKEN secret is required to check out ${HELM_REPOSITORY}." >&2
+            echo "Use a token or GitHub App installation token with read access to the Helm repository." >&2
+            exit 1
+          fi
+
+          if [ -z "${KUBE_CONFIG}" ] && [ -z "${KUBE_CONFIG_B64}" ]; then
+            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
+            exit 1
+          fi
+
+      - name: Verify Helm repository access
+        env:
+          BIO_COMPASS_HELM_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN }}
+        run: |
+          repo_url="https://api.github.com/repos/${HELM_REPOSITORY}"
+          if ! curl --fail --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${BIO_COMPASS_HELM_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "${repo_url}" > /dev/null; then
+            echo "Unable to read ${HELM_REPOSITORY} with BIO_COMPASS_HELM_TOKEN." >&2
+            echo "Check that the repository exists and that the token has contents read access to it." >&2
+            exit 1
+          fi
+
       - name: Check out Helm repository
         uses: actions/checkout@v6
         with:
-          repository: Bio-Compass/bio-compass-helm
+          repository: ${{ env.HELM_REPOSITORY }}
+          ref: ${{ env.HELM_REPOSITORY_REF }}
           path: ${{ env.HELM_REPO_PATH }}
-          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN }}
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
