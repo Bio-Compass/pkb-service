@@ -97,6 +97,7 @@ jobs:
       HELM_REPO_PATH: bio-compass-helm
       IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
       K8S_NAMESPACE: bio-compass
+      KUBECONFIG: /home/runner/.kube/biocompass.yaml
 
     steps:
       - name: Validate deployment secrets
@@ -153,15 +154,16 @@ jobs:
           mkdir -p "${HOME}/.kube"
 
           if [ -n "${KUBE_CONFIG}" ]; then
-            printf '%s' "${KUBE_CONFIG}" > "${HOME}/.kube/config"
+            printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
           elif [ -n "${KUBE_CONFIG_B64}" ]; then
-            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${HOME}/.kube/config"
+            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
           else
             echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
             exit 1
           fi
 
-          chmod 600 "${HOME}/.kube/config"
+          cp "${KUBECONFIG}" "${HOME}/.kube/config"
+          chmod 600 "${KUBECONFIG}" "${HOME}/.kube/config"
 
       - name: Deploy service
         working-directory: ${{ env.HELM_REPO_PATH }}
