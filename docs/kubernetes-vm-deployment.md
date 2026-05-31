@@ -68,6 +68,22 @@ helm upgrade --install pkb-service "${HELM_REPO}/charts/pkb-service" \
 
 For registry images, build and push with `-PcontainerImage=<registry>/pkb-service`, then set `image.repository=<registry>/pkb-service`. The BioCompass Helm defaults expect `ghcr.io/bio-compass/pkb-service`.
 
+## GitHub Actions Deployment
+
+On pushes to `main`, the repository CI workflow runs tests, pushes the service image to `ghcr.io/bio-compass/pkb-service`, then deploys the published image tag to the `dev` Kubernetes environment with the shared Helm repository deploy script:
+
+```sh
+DEPLOY_SOURCE=local ./scripts/deploy.sh dev pkb-service <image-tag>
+```
+
+The deploy job checks out `Bio-Compass/bio-compass-helm` and requires Kubernetes credentials in the GitHub `dev` environment or repository secrets:
+
+- `BIO_COMPASS_HELM_TOKEN`: token with read access to `Bio-Compass/bio-compass-helm` when the default `GITHUB_TOKEN` cannot read the Helm repository.
+- `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
+- `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
+
+The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass` namespace after running the Helm deploy script.
+
 ## Configure Secrets
 
 Create a real secret through Helm values before deploying to an environment with backing services:
