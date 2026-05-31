@@ -1,6 +1,6 @@
 # VM-Hosted Kubernetes Deployment
 
-This deployment path targets a single Linux virtual machine running k3s. The PKB service repository owns the Java service image, while the Helm chart lives in the separate `Bio-Compass/bio-compass-helm` repository under `charts/pkb-service`.
+This deployment path targets a single Linux virtual machine running k3s. The PKB service repository owns the Java service image. The Helm chart is published as an OCI chart and deployed from the chart registry.
 
 ## Prerequisites
 
@@ -9,7 +9,7 @@ This deployment path targets a single Linux virtual machine running k3s. The PKB
 - Helm 3 installed on the machine running deployment commands.
 - Java 25 available on the build machine.
 - Docker available on the build machine when building into a local Docker daemon.
-- A checkout of `Bio-Compass/bio-compass-helm` for Helm chart source and environment values.
+- Access to the published PKB service Helm chart.
 
 Verify cluster access:
 
@@ -18,10 +18,10 @@ kubectl get nodes
 helm version --short
 ```
 
-Set the Helm repository location:
+Set the Helm chart reference:
 
 ```sh
-HELM_REPO=/path/to/bio-compass-helm
+HELM_CHART=oci://ghcr.io/bio-compass/charts/pkb-service
 ```
 
 ## Build The Service Image
@@ -54,13 +54,12 @@ If you publish to a registry instead, build and push the same branch-and-revisio
 ./gradlew test jib --no-daemon -PcontainerImage=<registry>/pkb-service
 ```
 
-Set the image repository and tag during Helm install or upgrade from the Helm repository:
+Set the image repository and tag during Helm install or upgrade:
 
 ```sh
-helm upgrade --install pkb-service "${HELM_REPO}/charts/pkb-service" \
+helm upgrade --install pkb-service "${HELM_CHART}" \
   --namespace bio-compass \
   --create-namespace \
-  -f "${HELM_REPO}/values/dev/pkb-service.yaml" \
   --set image.repository=pkb-service \
   --set image.pullPolicy=IfNotPresent \
   --set image.tag="${IMAGE_TAG}"
@@ -70,34 +69,41 @@ For registry images, build and push with `-PcontainerImage=<registry>/pkb-servic
 
 ## GitHub Actions Deployment
 
-On pushes to `main`, the repository CI workflow runs tests, pushes the service image to `ghcr.io/bio-compass/pkb-service`, then deploys the published image tag to the `dev` Kubernetes environment with the shared Helm repository deploy script:
+On pushes to `main`, the repository CI workflow runs tests, pushes the service image to `ghcr.io/bio-compass/pkb-service`, reads the Helm chart from the OCI chart registry, shows the Helm diff, then deploys with `helm upgrade --install`.
 
 ```sh
-DEPLOY_SOURCE=local ./scripts/deploy.sh dev pkb-service <image-tag>
+helm upgrade --install pkb-service oci://ghcr.io/bio-compass/charts/pkb-service \
+  --namespace bio-compass \
+  --create-namespace \
+  --set image.repository=ghcr.io/bio-compass/pkb-service \
+  --set image.tag=<image-tag>
 ```
 
-The deploy job checks out `Bio-Compass/bio-compass-helm` from `main` by default and requires credentials in the GitHub `dev` environment or repository secrets:
+The plan job writes the Helm diff to the job log and step summary. If the diff only changes container image lines, the workflow deploys automatically. If the diff includes any non-image change, the workflow waits on the `dev-manual-approval` GitHub environment before deploying.
 
-- `BIO_COMPASS_HELM_TOKEN`: token or GitHub App installation token with read access to `Bio-Compass/bio-compass-helm`. The default `GITHUB_TOKEN` is scoped to `pkb-service` and cannot read a private sibling repository.
+Configure `dev-manual-approval` with required reviewers in GitHub Environments to enforce the manual approval gate.
+
+The deploy jobs require credentials in the GitHub `dev` environment or repository secrets:
+
+- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package.
 - `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
 - `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
 
-The Helm repository and branch can be overridden with repository variables:
+The Helm chart reference can be overridden with repository variables:
 
-- `BIO_COMPASS_HELM_REPOSITORY`: owner/name of the Helm repository.
-- `BIO_COMPASS_HELM_REF`: branch, tag, or commit to check out.
+- `PKB_SERVICE_HELM_CHART`: OCI chart reference. Defaults to `oci://ghcr.io/bio-compass/charts/pkb-service`.
+- `PKB_SERVICE_HELM_CHART_VERSION`: optional chart version.
 
-The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass` namespace after running the Helm deploy script.
+The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass` namespace after Helm upgrade.
 
 ## Configure Secrets
 
 Create a real secret through Helm values before deploying to an environment with backing services:
 
 ```sh
-helm upgrade --install pkb-service "${HELM_REPO}/charts/pkb-service" \
+helm upgrade --install pkb-service "${HELM_CHART}" \
   --namespace bio-compass \
   --create-namespace \
-  -f "${HELM_REPO}/values/dev/pkb-service.yaml" \
   --set image.repository=pkb-service \
   --set image.pullPolicy=IfNotPresent \
   --set image.tag="${IMAGE_TAG}" \
@@ -114,19 +120,22 @@ The baseline deployment marks the secret reference as optional so the scaffold c
 Install or upgrade the chart with local image settings:
 
 ```sh
-helm upgrade --install pkb-service "${HELM_REPO}/charts/pkb-service" \
+helm upgrade --install pkb-service "${HELM_CHART}" \
   --namespace bio-compass \
   --create-namespace \
-  -f "${HELM_REPO}/values/dev/pkb-service.yaml" \
   --set image.repository=pkb-service \
   --set image.pullPolicy=IfNotPresent \
   --set image.tag="${IMAGE_TAG}"
 ```
 
-If the image is published to GHCR, use the generic Helm repository deploy script:
+If the image is published to GHCR, deploy that registry image:
 
 ```sh
-DEPLOY_SOURCE=local "${HELM_REPO}/scripts/deploy.sh" dev pkb-service "${IMAGE_TAG}"
+helm upgrade --install pkb-service "${HELM_CHART}" \
+  --namespace bio-compass \
+  --create-namespace \
+  --set image.repository=ghcr.io/bio-compass/pkb-service \
+  --set image.tag="${IMAGE_TAG}"
 ```
 
 Wait for rollout:
