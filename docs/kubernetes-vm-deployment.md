@@ -85,7 +85,7 @@ Configure `dev-manual-approval` with required reviewers in GitHub Environments t
 
 The deploy jobs require credentials in the GitHub `dev` environment or repository secrets:
 
-- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package.
+- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package. For GHCR, use a personal access token classic with `read:packages`, or grant the `pkb-service` repository access to the chart package so `GITHUB_TOKEN` can read it.
 - `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
 - `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
 
@@ -95,6 +95,7 @@ The Helm chart reference can be overridden with repository variables:
 - `PKB_SERVICE_HELM_CHART_VERSION`: optional chart version.
 - `HELM_VERSION`: optional Helm CLI version for deployment jobs. Defaults to `v3.19.2`.
 - `HELM_DIFF_VERSION`: optional pinned `databus23/helm-diff` plugin version. Defaults to `v3.13.2`.
+- `HELM_REGISTRY_USERNAME`: optional username for Helm registry login. Defaults to the workflow actor. Set this when `BIO_COMPASS_HELM_TOKEN` belongs to a different GitHub user.
 
 The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass` namespace after Helm upgrade.
 
