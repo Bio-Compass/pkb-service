@@ -17,8 +17,8 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ghcr.io/bio-compass/pkb-service
   SERVICE_NAME: pkb-service
-  HELM_REPOSITORY: ${{ vars.BIO_COMPASS_HELM_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
-  HELM_REPOSITORY_REF: ${{ vars.BIO_COMPASS_HELM_REF || 'main' }}
+  HELM_CHART: ${{ vars.PKB_SERVICE_HELM_CHART || 'oci://ghcr.io/bio-compass/charts/pkb-service' }}
+  HELM_CHART_VERSION: ${{ vars.PKB_SERVICE_HELM_CHART_VERSION || '' }}
 
 jobs:
   test:
@@ -83,8 +83,8 @@ jobs:
       - name: Build and push image
         run: ./gradlew jib --no-daemon -PcontainerImage="${IMAGE_NAME}"
 
-  deploy:
-    name: Deploy to Kubernetes
+  plan-deploy:
+    name: Plan Kubernetes Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: publish-image
@@ -92,9 +92,11 @@ jobs:
     environment: dev
     permissions:
       contents: read
+      packages: read
+    outputs:
+      requires-approval: ${{ steps.classify.outputs.requires-approval }}
+      image-only: ${{ steps.classify.outputs.image-only }}
     env:
-      DEPLOY_ENVIRONMENT: dev
-      HELM_REPO_PATH: bio-compass-helm
       IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
       K8S_NAMESPACE: bio-compass
       KUBECONFIG: /home/runner/.kube/biocompass.yaml
@@ -102,13 +104,12 @@ jobs:
     steps:
       - name: Validate deployment secrets
         env:
-          BIO_COMPASS_HELM_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN }}
+          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
           KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
         run: |
-          if [ -z "${BIO_COMPASS_HELM_TOKEN}" ]; then
-            echo "BIO_COMPASS_HELM_TOKEN secret is required to check out ${HELM_REPOSITORY}." >&2
-            echo "Use a token or GitHub App installation token with read access to the Helm repository." >&2
+          if [ -z "${HELM_REGISTRY_TOKEN}" ]; then
+            echo "BIO_COMPASS_HELM_TOKEN or GITHUB_TOKEN is required to read the Helm chart from ${REGISTRY}." >&2
             exit 1
           fi
 
@@ -116,29 +117,6 @@ jobs:
             echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
             exit 1
           fi
-
-      - name: Verify Helm repository access
-        env:
-          BIO_COMPASS_HELM_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN }}
-        run: |
-          repo_url="https://api.github.com/repos/${HELM_REPOSITORY}"
-          if ! curl --fail --silent --show-error \
-            --header "Accept: application/vnd.github+json" \
-            --header "Authorization: Bearer ${BIO_COMPASS_HELM_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "${repo_url}" > /dev/null; then
-            echo "Unable to read ${HELM_REPOSITORY} with BIO_COMPASS_HELM_TOKEN." >&2
-            echo "Check that the repository exists and that the token has contents read access to it." >&2
-            exit 1
-          fi
-
-      - name: Check out Helm repository
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.HELM_REPOSITORY }}
-          ref: ${{ env.HELM_REPOSITORY_REF }}
-          path: ${{ env.HELM_REPO_PATH }}
-          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN }}
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
@@ -165,11 +143,225 @@ jobs:
           cp "${KUBECONFIG}" "${HOME}/.kube/config"
           chmod 600 "${KUBECONFIG}" "${HOME}/.kube/config"
 
-      - name: Deploy service
-        working-directory: ${{ env.HELM_REPO_PATH }}
+      - name: Log in to Helm registry
         env:
-          DEPLOY_SOURCE: local
-        run: ./scripts/deploy.sh "${DEPLOY_ENVIRONMENT}" "${SERVICE_NAME}" "${IMAGE_TAG}"
+          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
+
+      - name: Install Helm diff
+        run: helm plugin install https://github.com/databus23/helm-diff
+
+      - name: Show Helm diff
+        id: diff
+        run: |
+          chart_version_args=()
+          if [ -n "${HELM_CHART_VERSION}" ]; then
+            chart_version_args=(--version "${HELM_CHART_VERSION}")
+          fi
+
+          set +e
+          helm diff upgrade "${SERVICE_NAME}" "${HELM_CHART}" \
+            "${chart_version_args[@]}" \
+            --install \
+            --allow-unreleased \
+            --detailed-exitcode \
+            --no-color \
+            --namespace "${K8S_NAMESPACE}" \
+            --set image.repository="${IMAGE_NAME}" \
+            --set-string image.tag="${IMAGE_TAG}" \
+            > helm-diff.txt
+          diff_status=$?
+          set -e
+
+          cat helm-diff.txt
+
+          {
+            echo "### Helm diff for ${SERVICE_NAME}"
+            echo
+            echo '```diff'
+            head -c 60000 helm-diff.txt
+            echo
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${diff_status}" -ne 0 ] && [ "${diff_status}" -ne 2 ]; then
+            exit "${diff_status}"
+          fi
+
+          echo "status=${diff_status}" >> "${GITHUB_OUTPUT}"
+
+      - name: Classify Helm diff
+        id: classify
+        run: |
+          if [ "${{ steps.diff.outputs.status }}" = "0" ]; then
+            echo "image-only=true" >> "${GITHUB_OUTPUT}"
+            echo "requires-approval=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          grep -E '^[+-][^+-]' helm-diff.txt \
+            | grep -Ev '^[+-][[:space:]]*image:[[:space:]]' \
+            > non-image-diff.txt || true
+
+          if [ -s non-image-diff.txt ]; then
+            echo "image-only=false" >> "${GITHUB_OUTPUT}"
+            echo "requires-approval=true" >> "${GITHUB_OUTPUT}"
+            {
+              echo "### Manual approval required"
+              echo
+              echo "The Helm diff includes changes beyond container image updates."
+              echo
+              echo '```diff'
+              head -c 20000 non-image-diff.txt
+              echo
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "image-only=true" >> "${GITHUB_OUTPUT}"
+            echo "requires-approval=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  deploy-image-only:
+    name: Deploy Image-Only Change
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - publish-image
+      - plan-deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'false'
+    environment: dev
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
+      K8S_NAMESPACE: bio-compass
+      KUBECONFIG: /home/runner/.kube/biocompass.yaml
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure Kubernetes credentials
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          mkdir -p "${HOME}/.kube"
+
+          if [ -n "${KUBE_CONFIG}" ]; then
+            printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
+          elif [ -n "${KUBE_CONFIG_B64}" ]; then
+            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
+          else
+            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
+            exit 1
+          fi
+
+          cp "${KUBECONFIG}" "${HOME}/.kube/config"
+          chmod 600 "${KUBECONFIG}" "${HOME}/.kube/config"
+
+      - name: Log in to Helm registry
+        env:
+          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
+
+      - name: Deploy service
+        run: |
+          chart_version_args=()
+          if [ -n "${HELM_CHART_VERSION}" ]; then
+            chart_version_args=(--version "${HELM_CHART_VERSION}")
+          fi
+
+          helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
+            "${chart_version_args[@]}" \
+            --namespace "${K8S_NAMESPACE}" \
+            --create-namespace \
+            --set image.repository="${IMAGE_NAME}" \
+            --set-string image.tag="${IMAGE_TAG}"
+
+      - name: Wait for rollout
+        run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s
+
+  approve-non-image-deploy:
+    name: Approve Non-Image Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: plan-deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'true'
+    environment: dev-manual-approval
+    permissions:
+      contents: read
+
+    steps:
+      - name: Await manual approval
+        run: echo "Manual approval completed for non-image Helm diff."
+
+  deploy-approved-change:
+    name: Deploy Approved Change
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - publish-image
+      - plan-deploy
+      - approve-non-image-deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'true'
+    environment: dev
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
+      K8S_NAMESPACE: bio-compass
+      KUBECONFIG: /home/runner/.kube/biocompass.yaml
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure Kubernetes credentials
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          mkdir -p "${HOME}/.kube"
+
+          if [ -n "${KUBE_CONFIG}" ]; then
+            printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
+          elif [ -n "${KUBE_CONFIG_B64}" ]; then
+            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
+          else
+            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
+            exit 1
+          fi
+
+          cp "${KUBECONFIG}" "${HOME}/.kube/config"
+          chmod 600 "${KUBECONFIG}" "${HOME}/.kube/config"
+
+      - name: Log in to Helm registry
+        env:
+          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
+
+      - name: Deploy service
+        run: |
+          chart_version_args=()
+          if [ -n "${HELM_CHART_VERSION}" ]; then
+            chart_version_args=(--version "${HELM_CHART_VERSION}")
+          fi
+
+          helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
+            "${chart_version_args[@]}" \
+            --namespace "${K8S_NAMESPACE}" \
+            --create-namespace \
+            --set image.repository="${IMAGE_NAME}" \
+            --set-string image.tag="${IMAGE_TAG}"
 
       - name: Wait for rollout
         run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s
