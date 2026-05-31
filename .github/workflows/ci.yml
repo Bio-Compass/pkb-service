@@ -153,7 +153,7 @@ jobs:
         run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${{ github.actor }}" --password-stdin
 
       - name: Install Helm diff
-        run: helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}" --verify=false
+        run: helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}"
 
       - name: Show Helm diff
         id: diff
