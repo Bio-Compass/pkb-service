@@ -55,12 +55,19 @@ def gitValue = { List<String> args ->
     }.standardOutput.asText.map { it.trim() }
 }
 
-def gitBranch = providers.environmentVariable('GITHUB_HEAD_REF')
-        .orElse(providers.environmentVariable('GITHUB_REF_NAME'))
+def nonBlankEnvironmentVariable = { String name ->
+    providers.environmentVariable(name).map {
+        def trimmed = it.trim()
+        trimmed ? trimmed : null
+    }
+}
+
+def gitBranch = nonBlankEnvironmentVariable('GITHUB_HEAD_REF')
+        .orElse(nonBlankEnvironmentVariable('GITHUB_REF_NAME'))
         .orElse(gitValue(['rev-parse', '--abbrev-ref', 'HEAD']))
         .map { it == 'HEAD' ? 'detached' : it }
 
-def gitRevision = providers.environmentVariable('GITHUB_SHA')
+def gitRevision = nonBlankEnvironmentVariable('GITHUB_SHA')
         .map { it.take(12) }
         .orElse(gitValue(['rev-parse', '--short=12', 'HEAD']))
 

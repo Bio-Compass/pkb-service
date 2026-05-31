@@ -76,11 +76,16 @@ On pushes to `main`, the repository CI workflow runs tests, pushes the service i
 DEPLOY_SOURCE=local ./scripts/deploy.sh dev pkb-service <image-tag>
 ```
 
-The deploy job checks out `Bio-Compass/bio-compass-helm` and requires Kubernetes credentials in the GitHub `dev` environment or repository secrets:
+The deploy job checks out `Bio-Compass/bio-compass-helm` from `main` by default and requires credentials in the GitHub `dev` environment or repository secrets:
 
-- `BIO_COMPASS_HELM_TOKEN`: token with read access to `Bio-Compass/bio-compass-helm` when the default `GITHUB_TOKEN` cannot read the Helm repository.
+- `BIO_COMPASS_HELM_TOKEN`: token or GitHub App installation token with read access to `Bio-Compass/bio-compass-helm`. The default `GITHUB_TOKEN` is scoped to `pkb-service` and cannot read a private sibling repository.
 - `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
 - `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
+
+The Helm repository and branch can be overridden with repository variables:
+
+- `BIO_COMPASS_HELM_REPOSITORY`: owner/name of the Helm repository.
+- `BIO_COMPASS_HELM_REF`: branch, tag, or commit to check out.
 
 The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass` namespace after running the Helm deploy script.
 
