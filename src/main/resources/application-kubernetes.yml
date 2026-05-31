@@ -1,0 +1,29 @@
+spring:
+  config:
+    activate:
+      on-profile: kubernetes
+  datasource:
+    url: ${PKB_DATASOURCE_URL:jdbc:postgresql://postgresql:5432/pkb}
+    username: ${PKB_DATASOURCE_USERNAME:${PKB_POSTGRES_USER:pkb}}
+    password: ${PKB_DATASOURCE_PASSWORD:${PKB_POSTGRES_PASSWORD:}}
+  flyway:
+    enabled: ${PKB_FLYWAY_ENABLED:true}
+  kafka:
+    bootstrap-servers: ${PKB_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+
+biocompass:
+  pkb:
+    opa:
+      base-url: ${PKB_OPA_BASE_URL:http://opa:8181}
+      decision-path: ${PKB_OPA_DECISION_PATH:/v1/data/biocompass/pkb/authz/allow}
+    storage:
+      endpoint: ${PKB_S3_ENDPOINT:http://minio:9000}
+      region: ${PKB_S3_REGION:eu-central-1}
+      bucket: ${PKB_S3_BUCKET:pkb}
+      access-key: ${PKB_S3_ACCESS_KEY:${PKB_MINIO_ROOT_USER:}}
+      secret-key: ${PKB_S3_SECRET_KEY:${PKB_MINIO_ROOT_PASSWORD:}}
+      path-style-access-enabled: ${PKB_S3_PATH_STYLE_ACCESS_ENABLED:true}
+
+logging:
+  level:
+    com.biocompass.pkb: INFO

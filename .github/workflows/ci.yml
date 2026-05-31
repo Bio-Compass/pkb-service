@@ -13,6 +13,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/bio-compass/pkb-service
+  SERVICE_NAME: pkb-service
+
 jobs:
   test:
     name: Gradle Tests
@@ -34,3 +39,100 @@ jobs:
 
       - name: Run tests
         run: ./gradlew test --no-daemon
+
+  publish-image:
+    name: Build and Push Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.image.outputs.tag }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tag
+        id: image
+        run: |
+          image_tag="$(./gradlew -q printContainerImageTag)"
+          echo "tag=${image_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push image
+        run: ./gradlew jib --no-daemon -PcontainerImage="${IMAGE_NAME}"
+
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: publish-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: dev
+    permissions:
+      contents: read
+    env:
+      DEPLOY_ENVIRONMENT: dev
+      HELM_REPO_PATH: bio-compass-helm
+      IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
+      K8S_NAMESPACE: bio-compass
+
+    steps:
+      - name: Check out Helm repository
+        uses: actions/checkout@v6
+        with:
+          repository: Bio-Compass/bio-compass-helm
+          path: ${{ env.HELM_REPO_PATH }}
+          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure Kubernetes credentials
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          mkdir -p "${HOME}/.kube"
+
+          if [ -n "${KUBE_CONFIG}" ]; then
+            printf '%s' "${KUBE_CONFIG}" > "${HOME}/.kube/config"
+          elif [ -n "${KUBE_CONFIG_B64}" ]; then
+            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${HOME}/.kube/config"
+          else
+            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
+            exit 1
+          fi
+
+          chmod 600 "${HOME}/.kube/config"
+
+      - name: Deploy service
+        working-directory: ${{ env.HELM_REPO_PATH }}
+        env:
+          DEPLOY_SOURCE: local
+        run: ./scripts/deploy.sh "${DEPLOY_ENVIRONMENT}" "${SERVICE_NAME}" "${IMAGE_TAG}"
+
+      - name: Wait for rollout
+        run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s

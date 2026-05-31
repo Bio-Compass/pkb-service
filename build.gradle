@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'org.springframework.boot' version '4.0.6'
+    id 'com.google.cloud.tools.jib' version '3.5.3'
 }
 
 group = 'com.biocompass'
@@ -37,4 +38,67 @@ dependencies {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+}
+
+String sanitizeImageTagPart(String value) {
+    def sanitized = value
+            .toLowerCase(Locale.ROOT)
+            .replaceAll('[^a-z0-9_.-]+', '-')
+            .replaceAll('^[^a-z0-9]+', '')
+            .replaceAll('[^a-z0-9]+$', '')
+    sanitized ? sanitized.take(80) : 'unknown'
+}
+
+def gitValue = { List<String> args ->
+    providers.exec {
+        commandLine(['git'] + args)
+    }.standardOutput.asText.map { it.trim() }
+}
+
+def gitBranch = providers.environmentVariable('GITHUB_HEAD_REF')
+        .orElse(providers.environmentVariable('GITHUB_REF_NAME'))
+        .orElse(gitValue(['rev-parse', '--abbrev-ref', 'HEAD']))
+        .map { it == 'HEAD' ? 'detached' : it }
+
+def gitRevision = providers.environmentVariable('GITHUB_SHA')
+        .map { it.take(12) }
+        .orElse(gitValue(['rev-parse', '--short=12', 'HEAD']))
+
+def containerImageName = providers.gradleProperty('containerImage').orElse('pkb-service')
+def containerImageTag = providers.provider {
+    "${sanitizeImageTagPart(gitBranch.get())}-${sanitizeImageTagPart(gitRevision.get())}"
+}
+
+jib {
+    from {
+        image = 'eclipse-temurin:25-jre'
+    }
+    to {
+        image = containerImageName.get()
+        tags = [containerImageTag.get()] as Set
+    }
+    container {
+        mainClass = 'com.biocompass.pkb.PkbServiceApplication'
+        ports = ['8080']
+        user = '65532:65532'
+        jvmFlags = ['-Djava.security.egd=file:/dev/./urandom']
+    }
+}
+
+tasks.register('printContainerImageTag') {
+    description = 'Prints the branch-and-revision container image tag used by Jib.'
+    group = 'container'
+
+    doLast {
+        println containerImageTag.get()
+    }
+}
+
+tasks.register('printContainerImage') {
+    description = 'Prints the full container image name and tag used by Jib.'
+    group = 'container'
+
+    doLast {
+        println "${containerImageName.get()}:${containerImageTag.get()}"
+    }
 }
