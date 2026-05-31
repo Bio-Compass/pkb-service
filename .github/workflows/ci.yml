@@ -156,21 +156,14 @@ jobs:
       - name: Install Helm diff
         run: helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}"
 
-      - name: Resolve chart version arguments
-        id: chart-args
+      - name: Verify Helm chart access
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
             chart_version_args=(--version "${HELM_CHART_VERSION}")
           fi
 
-          printf 'args=' >> "${GITHUB_OUTPUT}"
-          printf '%q ' "${chart_version_args[@]}" >> "${GITHUB_OUTPUT}"
-          printf '\n' >> "${GITHUB_OUTPUT}"
-
-      - name: Verify Helm chart access
-        run: |
-          if ! helm show chart "${HELM_CHART}" ${{ steps.chart-args.outputs.args }}; then
+          if ! helm show chart "${HELM_CHART}" "${chart_version_args[@]}"; then
             echo "Unable to read Helm chart ${HELM_CHART} from ${REGISTRY}." >&2
             echo "Grant the pkb-service workflow access to the chart package or set BIO_COMPASS_HELM_TOKEN to a classic PAT with read:packages." >&2
             echo "If BIO_COMPASS_HELM_TOKEN belongs to a different GitHub user than the workflow actor, set HELM_REGISTRY_USERNAME to that username." >&2
@@ -180,9 +173,14 @@ jobs:
       - name: Show Helm diff
         id: diff
         run: |
+          chart_version_args=()
+          if [ -n "${HELM_CHART_VERSION}" ]; then
+            chart_version_args=(--version "${HELM_CHART_VERSION}")
+          fi
+
           set +e
           helm diff upgrade "${SERVICE_NAME}" "${HELM_CHART}" \
-            ${{ steps.chart-args.outputs.args }} \
+            "${chart_version_args[@]}" \
             --install \
             --allow-unreleased \
             --detailed-exitcode \
