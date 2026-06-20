@@ -18,6 +18,12 @@ kubectl get nodes
 helm version --short
 ```
 
+Create the namespace before using the namespace-scoped deployer service account:
+
+```sh
+kubectl create namespace bio-compass
+```
+
 Set the Helm chart reference:
 
 ```sh
@@ -59,7 +65,6 @@ Set the image repository and tag during Helm install or upgrade:
 ```sh
 helm upgrade --install pkb-service "${HELM_CHART}" \
   --namespace bio-compass \
-  --create-namespace \
   --set image.repository=pkb-service \
   --set image.pullPolicy=IfNotPresent \
   --set image.tag="${IMAGE_TAG}"
@@ -74,7 +79,6 @@ On pushes to `main`, the repository CI workflow runs tests, pushes the service i
 ```sh
 helm upgrade --install pkb-service oci://ghcr.io/bio-compass/charts/pkb-service \
   --namespace bio-compass \
-  --create-namespace \
   --set image.repository=ghcr.io/bio-compass/pkb-service \
   --set image.tag=<image-tag>
 ```
@@ -106,7 +110,6 @@ Create a real secret through Helm values before deploying to an environment with
 ```sh
 helm upgrade --install pkb-service "${HELM_CHART}" \
   --namespace bio-compass \
-  --create-namespace \
   --set image.repository=pkb-service \
   --set image.pullPolicy=IfNotPresent \
   --set image.tag="${IMAGE_TAG}" \
@@ -125,7 +128,6 @@ Install or upgrade the chart with local image settings:
 ```sh
 helm upgrade --install pkb-service "${HELM_CHART}" \
   --namespace bio-compass \
-  --create-namespace \
   --set image.repository=pkb-service \
   --set image.pullPolicy=IfNotPresent \
   --set image.tag="${IMAGE_TAG}"
@@ -136,7 +138,6 @@ If the image is published to GHCR, deploy that registry image:
 ```sh
 helm upgrade --install pkb-service "${HELM_CHART}" \
   --namespace bio-compass \
-  --create-namespace \
   --set image.repository=ghcr.io/bio-compass/pkb-service \
   --set image.tag="${IMAGE_TAG}"
 ```
