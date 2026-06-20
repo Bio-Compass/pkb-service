@@ -300,7 +300,6 @@ jobs:
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
             --namespace "${K8S_NAMESPACE}" \
-            --create-namespace \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}"
 
@@ -382,7 +381,6 @@ jobs:
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
             --namespace "${K8S_NAMESPACE}" \
-            --create-namespace \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}"
 
