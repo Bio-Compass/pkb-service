@@ -84,6 +84,9 @@ PostgreSQL canonical PKB
 └──────────────────────────────┘
 ```
 
+The implemented PostgreSQL tables and field responsibilities are documented in
+[PKB Canonical PostgreSQL Schema](pkb_canonical_schema.md).
+
 ---
 
 # Why PostgreSQL
@@ -452,7 +455,7 @@ CREATE TABLE pkb_fact_embedding (
 ## Core
 
 ```text
-Java 21
+Java 25
 Spring Boot 3
 PostgreSQL
 Hibernate 6

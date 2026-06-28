@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: ${PKB_POSTGRES_DB:-pkb}
       POSTGRES_USER: ${PKB_POSTGRES_USER:-pkb}
-      POSTGRES PASSWORD: ${PKB_POSTGRES_PASSWORD:-pkb-local-password}
+      POSTGRES_PASSWORD: ${PKB_POSTGRES_PASSWORD:-pkb-local-password}
     ports:
       - "${PKB_POSTGRES_PORT:-5432}:5432"
     volumes:
