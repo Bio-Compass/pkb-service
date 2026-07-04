@@ -90,7 +90,8 @@ Configure `dev-manual-approval` with required reviewers in GitHub Environments t
 
 The deploy jobs require credentials in the GitHub `dev` environment or repository secrets:
 
-- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package. The same token is used to check out the Helm values repository, so private values repositories also require repository contents read access. For GHCR, use a personal access token classic with `read:packages`, or grant the `pkb-service` repository access to the chart package so `GITHUB_TOKEN` can read it.
+- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package. For GHCR, use a personal access token classic with `read:packages`, or grant the `pkb-service` repository access to the chart package so `GITHUB_TOKEN` can read it.
+- `BIO_COMPASS_HELM_VALUES_SSH_KEY`: private SSH deploy key with read access to the private Helm values repository.
 - `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
 - `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
 

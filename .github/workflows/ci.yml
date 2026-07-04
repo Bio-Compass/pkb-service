@@ -113,11 +113,17 @@ jobs:
       - name: Validate deployment secrets
         env:
           HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          HELM_VALUES_SSH_KEY: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
           KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
         run: |
           if [ -z "${HELM_REGISTRY_TOKEN}" ]; then
             echo "BIO_COMPASS_HELM_TOKEN or GITHUB_TOKEN is required to read the Helm chart from ${REGISTRY}." >&2
+            exit 1
+          fi
+
+          if [ -z "${HELM_VALUES_SSH_KEY}" ]; then
+            echo "BIO_COMPASS_HELM_VALUES_SSH_KEY is required to read ${HELM_VALUES_REPOSITORY} for ${HELM_VALUES_FILE}." >&2
             exit 1
           fi
 
@@ -140,7 +146,7 @@ jobs:
           repository: ${{ env.HELM_VALUES_REPOSITORY }}
           ref: ${{ env.HELM_VALUES_REF }}
           path: helm-values
-          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
           persist-credentials: false
 
       - name: Resolve Helm values file
@@ -297,7 +303,7 @@ jobs:
           repository: ${{ env.HELM_VALUES_REPOSITORY }}
           ref: ${{ env.HELM_VALUES_REF }}
           path: helm-values
-          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
           persist-credentials: false
 
       - name: Resolve Helm values file
@@ -398,7 +404,7 @@ jobs:
           repository: ${{ env.HELM_VALUES_REPOSITORY }}
           ref: ${{ env.HELM_VALUES_REF }}
           path: helm-values
-          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
           persist-credentials: false
 
       - name: Resolve Helm values file
