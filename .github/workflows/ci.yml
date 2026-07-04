@@ -19,6 +19,9 @@ env:
   SERVICE_NAME: pkb-service
   HELM_CHART: ${{ vars.PKB_SERVICE_HELM_CHART || 'oci://ghcr.io/bio-compass/charts/pkb-service' }}
   HELM_CHART_VERSION: ${{ vars.PKB_SERVICE_HELM_CHART_VERSION || '' }}
+  HELM_VALUES_REPOSITORY: ${{ vars.PKB_SERVICE_HELM_VALUES_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
+  HELM_VALUES_REF: ${{ vars.PKB_SERVICE_HELM_VALUES_REF || 'main' }}
+  HELM_VALUES_FILE: ${{ vars.PKB_SERVICE_HELM_VALUES_FILE || 'values/dev/pkb-service.yaml' }}
   HELM_VERSION: ${{ vars.HELM_VERSION || 'v3.19.2' }}
   HELM_DIFF_VERSION: ${{ vars.HELM_DIFF_VERSION || 'v3.13.2' }}
   HELM_REGISTRY_USERNAME: ${{ vars.HELM_REGISTRY_USERNAME || github.actor }}
@@ -131,6 +134,25 @@ jobs:
         with:
           version: ${{ env.HELM_VERSION }}
 
+      - name: Check out Helm values
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.HELM_VALUES_REPOSITORY }}
+          ref: ${{ env.HELM_VALUES_REF }}
+          path: helm-values
+          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Resolve Helm values file
+        run: |
+          values_path="helm-values/${HELM_VALUES_FILE}"
+          if [ ! -f "${values_path}" ]; then
+            echo "Helm values file ${HELM_VALUES_FILE} was not found in ${HELM_VALUES_REPOSITORY}@${HELM_VALUES_REF}." >&2
+            exit 1
+          fi
+
+          echo "HELM_VALUES_PATH=${values_path}" >> "${GITHUB_ENV}"
+
       - name: Configure Kubernetes credentials
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
@@ -188,6 +210,7 @@ jobs:
             --detailed-exitcode \
             --no-color \
             --namespace "${K8S_NAMESPACE}" \
+            --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}" \
             > helm-diff.txt
@@ -268,6 +291,25 @@ jobs:
         with:
           version: ${{ env.HELM_VERSION }}
 
+      - name: Check out Helm values
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.HELM_VALUES_REPOSITORY }}
+          ref: ${{ env.HELM_VALUES_REF }}
+          path: helm-values
+          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Resolve Helm values file
+        run: |
+          values_path="helm-values/${HELM_VALUES_FILE}"
+          if [ ! -f "${values_path}" ]; then
+            echo "Helm values file ${HELM_VALUES_FILE} was not found in ${HELM_VALUES_REPOSITORY}@${HELM_VALUES_REF}." >&2
+            exit 1
+          fi
+
+          echo "HELM_VALUES_PATH=${values_path}" >> "${GITHUB_ENV}"
+
       - name: Configure Kubernetes credentials
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
@@ -302,6 +344,7 @@ jobs:
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
             --namespace "${K8S_NAMESPACE}" \
+            --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}"
 
@@ -349,6 +392,25 @@ jobs:
         with:
           version: ${{ env.HELM_VERSION }}
 
+      - name: Check out Helm values
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.HELM_VALUES_REPOSITORY }}
+          ref: ${{ env.HELM_VALUES_REF }}
+          path: helm-values
+          token: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Resolve Helm values file
+        run: |
+          values_path="helm-values/${HELM_VALUES_FILE}"
+          if [ ! -f "${values_path}" ]; then
+            echo "Helm values file ${HELM_VALUES_FILE} was not found in ${HELM_VALUES_REPOSITORY}@${HELM_VALUES_REF}." >&2
+            exit 1
+          fi
+
+          echo "HELM_VALUES_PATH=${values_path}" >> "${GITHUB_ENV}"
+
       - name: Configure Kubernetes credentials
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
@@ -383,6 +445,7 @@ jobs:
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
             --namespace "${K8S_NAMESPACE}" \
+            --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}"
 

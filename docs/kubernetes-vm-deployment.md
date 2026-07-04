@@ -74,22 +74,23 @@ For registry images, build and push with `-PcontainerImage=<registry>/pkb-servic
 
 ## GitHub Actions Deployment
 
-On pushes to `main`, the repository CI workflow runs tests, pushes the service image to `ghcr.io/bio-compass/pkb-service`, reads the Helm chart from the OCI chart registry, shows the Helm diff, then deploys with `helm upgrade --install`.
+On pushes to `main`, the repository CI workflow runs tests, pushes the service image to `ghcr.io/bio-compass/pkb-service`, reads the Helm chart from the OCI chart registry, checks out the dev values file from the Helm repository, shows the Helm diff, then deploys with `helm upgrade --install`.
 
 ```sh
 helm upgrade --install pkb-service oci://ghcr.io/bio-compass/charts/pkb-service \
   --namespace bio-compass \
+  --values <bio-compass-helm>/values/dev/pkb-service.yaml \
   --set image.repository=ghcr.io/bio-compass/pkb-service \
   --set image.tag=<image-tag>
 ```
 
-The plan job writes the Helm diff to the job log and step summary. If the diff only changes container image lines, the workflow deploys automatically. If the diff includes any non-image change, the workflow waits on the `dev-manual-approval` GitHub environment before deploying.
+The plan job writes the Helm diff to the job log and step summary. The diff is calculated with the same dev values file that the deployment jobs use. If the diff only changes container image lines, the workflow deploys automatically. If the diff includes any non-image change, the workflow waits on the `dev-manual-approval` GitHub environment before deploying.
 
 Configure `dev-manual-approval` with required reviewers in GitHub Environments to enforce the manual approval gate.
 
 The deploy jobs require credentials in the GitHub `dev` environment or repository secrets:
 
-- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package. For GHCR, use a personal access token classic with `read:packages`, or grant the `pkb-service` repository access to the chart package so `GITHUB_TOKEN` can read it.
+- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package. The same token is used to check out the Helm values repository, so private values repositories also require repository contents read access. For GHCR, use a personal access token classic with `read:packages`, or grant the `pkb-service` repository access to the chart package so `GITHUB_TOKEN` can read it.
 - `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
 - `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
 
@@ -97,6 +98,9 @@ The Helm chart reference can be overridden with repository variables:
 
 - `PKB_SERVICE_HELM_CHART`: OCI chart reference. Defaults to `oci://ghcr.io/bio-compass/charts/pkb-service`.
 - `PKB_SERVICE_HELM_CHART_VERSION`: optional chart version.
+- `PKB_SERVICE_HELM_VALUES_REPOSITORY`: optional repository containing the deployment values file. Defaults to `Bio-Compass/bio-compass-helm`.
+- `PKB_SERVICE_HELM_VALUES_REF`: optional branch, tag, or SHA for the values repository. Defaults to `main`.
+- `PKB_SERVICE_HELM_VALUES_FILE`: optional values path inside the values repository. Defaults to `values/dev/pkb-service.yaml`.
 - `HELM_VERSION`: optional Helm CLI version for deployment jobs. Defaults to `v3.19.2`.
 - `HELM_DIFF_VERSION`: optional pinned `databus23/helm-diff` plugin version. Defaults to `v3.13.2`.
 - `HELM_REGISTRY_USERNAME`: optional username for Helm registry login. Defaults to the workflow actor. Set this when `BIO_COMPASS_HELM_TOKEN` belongs to a different GitHub user.
