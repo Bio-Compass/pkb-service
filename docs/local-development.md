@@ -114,6 +114,8 @@ Run the full test suite:
 
 The local infrastructure tests use Testcontainers to start PostgreSQL, Kafka, MinIO, and OPA automatically. They do not require the Compose stack to be running.
 
+Use [Local Verification Testcases](local-verification-testcases.md) as the checklist for local service verification after code changes.
+
 ## Stop Infrastructure
 
 Stop containers without deleting data:

@@ -12,6 +12,7 @@ The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb
 - Include the GitHub issue number in the branch name.
 - Link the branch or PR back to the corresponding GitHub issue.
 - Keep implementation scoped to the current issue unless the user explicitly expands scope.
+- Deploy only after the diff has been manually reviewed and approved.
 
 ## Java Stack
 
@@ -31,6 +32,8 @@ The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb
 - Every implementation step should be runnable or testable locally.
 - Run the relevant Gradle tests for the step before finalizing.
 - When a service change affects startup or HTTP behavior, run the service locally and verify the relevant endpoint.
+- After each code change, consult and update [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as needed.
+- Track new or changed service behavior as testcases before finalizing the change.
 
 ## Testing
 
