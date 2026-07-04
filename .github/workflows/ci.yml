@@ -85,17 +85,8 @@ jobs:
 
       - name: Build and push image
         run: |
-          for attempt in 1 2 3; do
-            if ./gradlew --no-daemon -Djib.httpTimeout=120000 -Djib.serialize=true -PcontainerImage="${IMAGE_NAME}" jib; then
-              exit 0
-            fi
-
-            if [ "${attempt}" = "3" ]; then
-              exit 1
-            fi
-
-            sleep $((attempt * 20))
-          done
+          ./gradlew jibDockerBuild --no-daemon -PcontainerImage="${IMAGE_NAME}"
+          docker push "${IMAGE_NAME}:${{ steps.image.outputs.tag }}"
 
   plan-deploy:
     name: Plan Kubernetes Deploy
