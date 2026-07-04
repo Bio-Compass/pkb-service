@@ -84,7 +84,18 @@ jobs:
           echo "tag=${image_tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Build and push image
-        run: ./gradlew jib --no-daemon -PcontainerImage="${IMAGE_NAME}"
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew --no-daemon -Djib.httpTimeout=120000 -Djib.serialize=true -PcontainerImage="${IMAGE_NAME}" jib; then
+              exit 0
+            fi
+
+            if [ "${attempt}" = "3" ]; then
+              exit 1
+            fi
+
+            sleep $((attempt * 20))
+          done
 
   plan-deploy:
     name: Plan Kubernetes Deploy
