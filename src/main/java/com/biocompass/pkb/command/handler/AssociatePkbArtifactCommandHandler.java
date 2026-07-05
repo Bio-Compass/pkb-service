@@ -27,7 +27,7 @@ public class AssociatePkbArtifactCommandHandler
     @Override
     @Transactional
     public PkbArtifactEntity handle(AssociatePkbArtifactCommand command) {
-        itemResolver.findOwnedItem(command.userId(), command.pkbItemId());
+        itemResolver.requireOwnedItem(command.userId(), command.pkbItemId());
 
         var artifact = artifactDao.findByUserAndArtifactId(command.userId(), command.artifactId())
                 .orElseThrow(() -> new PkbCommandNotFoundException("PKB artifact", command.artifactId()));

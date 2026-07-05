@@ -59,6 +59,41 @@ class PkbCommandServiceIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void nullCommandIsRejectedBySpringMethodValidation() {
+        assertThatThrownBy(() -> commandService.handle(null))
+                .hasMessageContaining("command is required");
+        assertThat(eventPublisher.events()).isEmpty();
+    }
+
+    @Test
+    void invalidCreateItemIsRejectedBySpringMethodValidation() {
+        var command = new CreatePkbItemCommand(
+                UUID.randomUUID(),
+                " ",
+                "water",
+                "active",
+                null,
+                "manual",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("manual", null, null, null, null),
+                "invalid-create"
+        );
+
+        assertThatThrownBy(() -> commandService.handle(command))
+                .hasMessageContaining("entityType is required")
+                .hasMessageContaining("payload is required");
+        assertThat(eventPublisher.events()).isEmpty();
+    }
+
+    @Test
     void createItemPersistsItemAndProvenanceThenPublishesEventAfterCommit() {
         var userId = UUID.randomUUID();
         var command = waterIntakeCommand(userId, "integration-create", "integration-source-1");

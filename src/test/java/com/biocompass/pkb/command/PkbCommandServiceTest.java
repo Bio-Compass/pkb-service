@@ -17,8 +17,6 @@ import com.biocompass.pkb.persistence.dao.PkbItemDao;
 import com.biocompass.pkb.persistence.dao.PkbRelationshipDao;
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
 import com.biocompass.pkb.persistence.entity.PkbRelationshipEntity;
-import jakarta.validation.Validation;
-import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,7 +27,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,31 +64,21 @@ class PkbCommandServiceTest {
                 itemResolver,
                 afterCommitEventPublisher
         );
-        try(ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
-            commandService = new PkbCommandService(List.of(
-                    createItemHandler,
-                    new SupersedePkbItemCommandHandler(createItemHandler),
-                    new CreatePkbRelationshipCommandHandler(
-                            relationshipDao,
-                            normalizer,
-                            itemResolver,
-                            afterCommitEventPublisher
-                    ),
-                    new AssociatePkbArtifactCommandHandler(
-                            artifactDao,
-                            itemResolver,
-                            afterCommitEventPublisher
-                    )
-            ), validatorFactory.getValidator());
-        }
-    }
-
-    @Test
-    void nullCommandDoesNotDispatch() {
-        assertThatThrownBy(() -> commandService.handle(null))
-                .isInstanceOf(PkbCommandValidationException.class)
-                .hasMessageContaining("command is required");
-        verifyNoInteractions(itemDao, relationshipDao, artifactDao, eventPublisher);
+        commandService = new PkbCommandService(List.of(
+                createItemHandler,
+                new SupersedePkbItemCommandHandler(createItemHandler),
+                new CreatePkbRelationshipCommandHandler(
+                        relationshipDao,
+                        normalizer,
+                        itemResolver,
+                        afterCommitEventPublisher
+                ),
+                new AssociatePkbArtifactCommandHandler(
+                        artifactDao,
+                        itemResolver,
+                        afterCommitEventPublisher
+                )
+        ));
     }
 
     @Test
@@ -120,45 +107,13 @@ class PkbCommandServiceTest {
     }
 
     @Test
-    void invalidCreateItemDoesNotPersistOrPublishEvent() {
-        var invalidCommand = new CreatePkbItemCommand(
-                UUID.randomUUID(),
-                " ",
-                "water",
-                "active",
-                null,
-                "manual",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                new PkbProvenanceCommand("manual", null, null, null, null),
-                "correlation-invalid"
-        );
-
-        assertThatThrownBy(() -> commandService.handle(invalidCommand))
-                .isInstanceOf(PkbCommandValidationException.class)
-                .hasMessageContaining("entityType is required")
-                .hasMessageContaining("payload is required");
-        verifyNoInteractions(itemDao, relationshipDao, artifactDao, eventPublisher);
-    }
-
-    @Test
     void missingRelationshipEndpointDoesNotPersistOrPublishEvent() {
         var userId = UUID.randomUUID();
         var fromItemId = UUID.randomUUID();
         var toItemId = UUID.randomUUID();
         var command = new CreatePkbRelationshipCommand(userId, fromItemId, toItemId, "supports", "correlation-rel");
-        when(itemDao.findByUserAndItemId(userId, fromItemId)).thenReturn(Optional.of(PkbItemEntity.builder()
-                .pkbItemId(fromItemId)
-                .userId(userId)
-                .build()));
-        when(itemDao.findByUserAndItemId(userId, toItemId)).thenReturn(Optional.empty());
+        when(itemDao.existsByUserAndItemId(userId, fromItemId)).thenReturn(true);
+        when(itemDao.existsByUserAndItemId(userId, toItemId)).thenReturn(false);
 
         assertThatThrownBy(() -> commandService.handle(command))
                 .isInstanceOf(PkbCommandNotFoundException.class)
@@ -173,14 +128,8 @@ class PkbCommandServiceTest {
         var toItemId = UUID.randomUUID();
         var relationshipId = UUID.randomUUID();
         var command = new CreatePkbRelationshipCommand(userId, fromItemId, toItemId, " Supports ", "correlation-rel");
-        when(itemDao.findByUserAndItemId(userId, fromItemId)).thenReturn(Optional.of(PkbItemEntity.builder()
-                .pkbItemId(fromItemId)
-                .userId(userId)
-                .build()));
-        when(itemDao.findByUserAndItemId(userId, toItemId)).thenReturn(Optional.of(PkbItemEntity.builder()
-                .pkbItemId(toItemId)
-                .userId(userId)
-                .build()));
+        when(itemDao.existsByUserAndItemId(userId, fromItemId)).thenReturn(true);
+        when(itemDao.existsByUserAndItemId(userId, toItemId)).thenReturn(true);
         when(relationshipDao.save(any())).thenAnswer(invocation -> {
             PkbRelationshipEntity relationship = invocation.getArgument(0);
             relationship.setRelationshipId(relationshipId);

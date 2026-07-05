@@ -56,7 +56,7 @@ public record CreatePkbItemCommand(
 
     @AssertTrue(message = "validity validUntil must not be before validFrom")
     public boolean isValidityWindowValid() {
-        return validFrom == null || validUntil == null || validUntil.isAfter(validFrom);
+        return validFrom == null || validUntil == null || !validUntil.isBefore(validFrom);
     }
 
     public CreatePkbItemCommand withUserIdSupersedesAndCorrelationId(

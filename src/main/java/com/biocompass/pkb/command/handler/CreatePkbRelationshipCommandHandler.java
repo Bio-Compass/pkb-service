@@ -27,8 +27,8 @@ public class CreatePkbRelationshipCommandHandler
     @Override
     @Transactional
     public PkbRelationshipEntity handle(CreatePkbRelationshipCommand command) {
-        itemResolver.findOwnedItem(command.userId(), command.fromItemId());
-        itemResolver.findOwnedItem(command.userId(), command.toItemId());
+        itemResolver.requireOwnedItem(command.userId(), command.fromItemId());
+        itemResolver.requireOwnedItem(command.userId(), command.toItemId());
 
         var savedRelationship = relationshipDao.save(normalizer.toRelationshipEntity(command));
         eventPublisher.publishAfterCommit(PkbDomainEvent.relationshipCreated(
