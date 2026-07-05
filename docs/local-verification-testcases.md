@@ -15,6 +15,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | AUTO-001 | Full Gradle test suite | `./gradlew test --no-daemon` | Build succeeds and all tests pass. |
 | AUTO-002 | Qodana static-analysis report | `qodana scan --save-report --results-dir .qodana/results` | Command exits successfully and writes `.qodana/results/qodana.sarif.json` plus `.qodana/results/report/index.html`. |
 | AUTO-003 | PKB command module tests | `./gradlew test --tests 'com.biocompass.pkb.command.*' --tests 'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest' --no-daemon` | Command DTO validation, metadata normalization, transactional writes, supersession, relationship creation, artifact association, and after-commit domain event behavior pass. |
+| AUTO-004 | CI deploy change classifier | `./gradlew testCiScripts --no-daemon` | Classifier allows image-only Helm diffs without approval and requires approval for service/runtime or non-image Helm changes. |
 
 ## Local Service Testcases
 

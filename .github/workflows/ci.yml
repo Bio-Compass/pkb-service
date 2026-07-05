@@ -110,6 +110,32 @@ jobs:
       KUBECONFIG: /home/runner/.kube/biocompass.yaml
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: List repository changes
+        run: |
+          before_sha="${{ github.event.before }}"
+          after_sha="${{ github.sha }}"
+          zero_sha="0000000000000000000000000000000000000000"
+
+          if [ -z "${before_sha}" ] || [ "${before_sha}" = "${zero_sha}" ] || ! git cat-file -e "${before_sha}^{commit}" 2>/dev/null; then
+            git diff-tree --no-commit-id --name-only -r "${after_sha}" > changed-files.txt
+          else
+            git diff --name-only "${before_sha}" "${after_sha}" > changed-files.txt
+          fi
+
+          {
+            echo "### Repository changes for deploy classification"
+            echo
+            echo '```'
+            head -c 20000 changed-files.txt
+            echo
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Validate deployment secrets
         env:
           HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
@@ -240,36 +266,14 @@ jobs:
 
           echo "status=${diff_status}" >> "${GITHUB_OUTPUT}"
 
-      - name: Classify Helm diff
+      - name: Classify deploy change
         id: classify
         run: |
-          if [ "${{ steps.diff.outputs.status }}" = "0" ]; then
-            echo "image-only=true" >> "${GITHUB_OUTPUT}"
-            echo "requires-approval=false" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          grep -E '^[+-][^+-]' helm-diff.txt \
-            | grep -Ev '^[+-][[:space:]]*image:[[:space:]]' \
-            > non-image-diff.txt || true
-
-          if [ -s non-image-diff.txt ]; then
-            echo "image-only=false" >> "${GITHUB_OUTPUT}"
-            echo "requires-approval=true" >> "${GITHUB_OUTPUT}"
-            {
-              echo "### Manual approval required"
-              echo
-              echo "The Helm diff includes changes beyond container image updates."
-              echo
-              echo '```diff'
-              head -c 20000 non-image-diff.txt
-              echo
-              echo '```'
-            } >> "${GITHUB_STEP_SUMMARY}"
-          else
-            echo "image-only=true" >> "${GITHUB_OUTPUT}"
-            echo "requires-approval=false" >> "${GITHUB_OUTPUT}"
-          fi
+          bash .github/scripts/classify-deploy-change.sh \
+            --helm-diff helm-diff.txt \
+            --diff-status "${{ steps.diff.outputs.status }}" \
+            --changed-files changed-files.txt \
+            --output-dir .
 
   deploy-image-only:
     name: Deploy Image-Only Change
@@ -278,7 +282,7 @@ jobs:
     needs:
       - publish-image
       - plan-deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'false'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.image-only == 'true' && needs.plan-deploy.outputs.requires-approval == 'false'
     environment: dev
     permissions:
       contents: read
@@ -365,9 +369,23 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'true'
     environment: dev-manual-approval
     permissions:
+      actions: read
       contents: read
 
     steps:
+      - name: Verify manual approval protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVAL_ENVIRONMENT: dev-manual-approval
+        run: |
+          environment_json="$(gh api "repos/${GITHUB_REPOSITORY}/environments/${APPROVAL_ENVIRONMENT}")"
+          required_reviewers="$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length' <<< "${environment_json}")"
+
+          if [ "${required_reviewers}" -lt 1 ]; then
+            echo "The ${APPROVAL_ENVIRONMENT} environment must have at least one required reviewer before non-image deploys can proceed." >&2
+            exit 1
+          fi
+
       - name: Await manual approval
         run: echo "Manual approval completed for non-image Helm diff."
 
