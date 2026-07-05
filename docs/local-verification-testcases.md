@@ -13,6 +13,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | ID | Scope | Command | Expected result |
 | --- | --- | --- | --- |
 | AUTO-001 | Full Gradle test suite | `./gradlew test --no-daemon` | Build succeeds and all tests pass. |
+| AUTO-002 | Qodana static-analysis report | `qodana scan --save-report --results-dir .qodana/results` | Command exits successfully and writes `.qodana/results/qodana.sarif.json` plus `.qodana/results/report/index.html`. |
 
 ## Local Service Testcases
 

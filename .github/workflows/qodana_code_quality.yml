@@ -4,6 +4,7 @@
 #-------------------------------------------------------------------------------#
 
 name: Qodana
+
 on:
   workflow_dispatch:
   pull_request:
@@ -11,34 +12,50 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   qodana:
+    name: Qodana Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       checks: write
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: 'Qodana Scan'
+
+      - name: Qodana Scan
         uses: JetBrains/qodana-action@v2026.1
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
         with:
+          # --save-report creates results/report/index.html; upload-result publishes it as a workflow artifact.
+          args: --save-report
           # When pr-mode is set to true, Qodana analyzes only the files that have been changed
           pr-mode: false
           use-caches: true
           post-pr-comment: true
           use-annotations: true
           # Upload Qodana results (SARIF, other artifacts, logs) as an artifact to the job
-          upload-result: false
+          upload-result: true
+          artifact-name: qodana-report
           # quick-fixes available in Ultimate and Ultimate Plus plans
-          push-fixes: 'none'
-      - uses: github/codeql-action/upload-sarif@v3
+          push-fixes: none
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: ${{ runner.temp }}/qodana/results/qodana.sarif.json
