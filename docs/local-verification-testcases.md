@@ -13,6 +13,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | ID | Scope | Command | Expected result |
 | --- | --- | --- | --- |
 | AUTO-001 | Full Gradle test suite | `./gradlew test --no-daemon` | Build succeeds and all tests pass. |
+| AUTO-002 | CI deploy change classifier | `./gradlew testCiScripts --no-daemon` | Classifier allows image-only Helm diffs without approval and requires approval for service/runtime or non-image Helm changes. |
 
 ## Local Service Testcases
 
