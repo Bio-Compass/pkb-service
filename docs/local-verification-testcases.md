@@ -13,6 +13,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | ID | Scope | Command | Expected result |
 | --- | --- | --- | --- |
 | AUTO-001 | Full Gradle test suite | `./gradlew test --no-daemon` | Build succeeds and all tests pass. |
+| AUTO-002 | PKB command module tests | `./gradlew test --tests 'com.biocompass.pkb.command.*' --tests 'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest' --no-daemon` | Command DTO validation, metadata normalization, transactional writes, supersession, relationship creation, artifact association, and after-commit domain event behavior pass. |
 
 ## Local Service Testcases
 
@@ -47,6 +48,7 @@ Start the service with the local profile:
 Add concrete local service testcases here as features land:
 
 - Item create/read/update/delete HTTP flows.
+- Command-layer item creation, supersession, relationship creation, and artifact association are covered by `AUTO-002`; add HTTP-level flows once REST APIs are introduced.
 - Artifact registration and MinIO object-reference behavior.
 - OPA deny-policy scenarios and service-level authorization decisions.
 - Kafka event publication and consumer/idempotency behavior.
