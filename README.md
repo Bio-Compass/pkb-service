@@ -74,6 +74,16 @@ set +a
 The tests use Testcontainers for infrastructure dependencies, so the Compose stack does not need to be running.
 Use [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as the service verification checklist after code changes.
 
+### Qodana Report
+
+The Qodana GitHub Actions workflow uploads a `qodana-report` artifact for each run. The artifact includes the SARIF output, Qodana logs, and the saved HTML report under `report/index.html`.
+
+To reproduce the report locally, install the Qodana CLI and run:
+
+```sh
+qodana scan --save-report --results-dir .qodana/results
+```
+
 ### Stop Local Dependencies
 
 ```sh
