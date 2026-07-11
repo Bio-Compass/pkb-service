@@ -52,6 +52,16 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+tasks.register('testCiScripts', Exec) {
+    description = 'Runs tests for GitHub Actions helper scripts.'
+    group = 'verification'
+    commandLine 'bash', '.github/scripts/test-classify-deploy-change.sh'
+}
+
+tasks.named('test') {
+    dependsOn tasks.named('testCiScripts')
+}
+
 static String sanitizeImageTagPart(String value) {
     def sanitized = value
             .toLowerCase(Locale.ROOT)

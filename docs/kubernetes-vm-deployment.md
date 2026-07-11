@@ -84,9 +84,9 @@ helm upgrade --install pkb-service oci://ghcr.io/bio-compass/charts/pkb-service 
   --set image.tag=<image-tag>
 ```
 
-The plan job writes the Helm diff to the job log and step summary. The diff is calculated with the same dev values file that the deployment jobs use. If the diff only changes container image lines, the workflow deploys automatically. If the diff includes any non-image change, the workflow waits on the `dev-manual-approval` GitHub environment before deploying.
+The plan job writes the repository change list and Helm diff to the job log and step summary. The diff is calculated with the same dev values file that the deployment jobs use. The workflow deploys automatically only when the rendered Helm diff is image-only and the push does not change service runtime or deployment-control files. If the push changes service source, resources, build files, CI deploy control, local deployment manifests, or the Helm diff includes any non-image change, the workflow waits on the `dev-manual-approval` GitHub environment before deploying.
 
-Configure `dev-manual-approval` with required reviewers in GitHub Environments to enforce the manual approval gate.
+Configure `dev-manual-approval` with required reviewers in GitHub Environments to enforce the manual approval gate. The workflow verifies that this environment has at least one required reviewer before it allows a non-image deploy to proceed.
 
 The deploy jobs require credentials in the GitHub `dev` environment or repository secrets:
 

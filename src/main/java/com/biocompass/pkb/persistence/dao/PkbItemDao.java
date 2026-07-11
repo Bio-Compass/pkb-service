@@ -43,6 +43,11 @@ public class PkbItemDao {
     }
 
     @Transactional(readOnly = true)
+    public boolean existsByUserAndItemId(UUID userId, UUID pkbItemId) {
+        return itemRepository.existsByPkbItemIdAndUserId(pkbItemId, userId);
+    }
+
+    @Transactional(readOnly = true)
     public Optional<PkbItemEntity> findBySource(UUID userId, String sourceType, String sourceId) {
         return itemRepository.findByUserIdAndSourceTypeAndSourceId(userId, sourceType, sourceId);
     }
