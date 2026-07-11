@@ -22,4 +22,5 @@ public interface PkbItemRepository extends JpaRepository<PkbItemEntity, UUID>, J
 
     Optional<PkbItemEntity> findByUserIdAndSourceTypeAndSourceId(UUID userId, String sourceType, String sourceId);
 
+    boolean existsByPkbItemIdAndUserId(UUID pkbItemId, UUID userId);
 }
