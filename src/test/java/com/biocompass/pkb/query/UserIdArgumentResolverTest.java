@@ -61,7 +61,7 @@ class UserIdArgumentResolverTest {
     }
 
     @Test
-    void rejectsHeaderIdentityWhenRequestIsUnauthenticated() throws Exception {
+    void rejectsHeaderIdentityWhenRequestIsUnauthenticated() {
         UUID userId = UUID.randomUUID();
         MockHttpServletRequest request = request(userId);
         request.addHeader("X-BioCompass-User-Id", userId.toString());
@@ -73,7 +73,7 @@ class UserIdArgumentResolverTest {
     }
 
     @Test
-    void rejectsHeaderIdentityForAuthenticatedNonBioCompassPrincipal() throws Exception {
+    void rejectsHeaderIdentityForAuthenticatedNonBioCompassPrincipal() {
         UUID userId = UUID.randomUUID();
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 "authenticated-user",
@@ -89,7 +89,7 @@ class UserIdArgumentResolverTest {
     }
 
     @Test
-    void rejectsDifferentUserScopeWithoutAllowedRole() throws Exception {
+    void rejectsDifferentUserScopeWithoutAllowedRole() {
         SecurityContextHolder.getContext().setAuthentication(authentication(UUID.randomUUID()));
         MockHttpServletRequest request = request(UUID.randomUUID());
 
@@ -100,7 +100,7 @@ class UserIdArgumentResolverTest {
     }
 
     @Test
-    void rejectsMissingUserIdParameter() throws Exception {
+    void rejectsMissingUserIdParameter() {
         SecurityContextHolder.getContext().setAuthentication(authentication(UUID.randomUUID()));
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/pkb/items");
 
