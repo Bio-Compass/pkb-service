@@ -11,12 +11,16 @@ import com.biocompass.pkb.persistence.entity.PkbFactEmbeddingEntity;
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
 import com.biocompass.pkb.persistence.entity.PkbProvenanceEntity;
 import com.biocompass.pkb.persistence.entity.PkbRelationshipEntity;
+import com.biocompass.pkb.query.PkbItemQueryRepository;
+import com.biocompass.pkb.query.PkbItemRecord;
+import com.biocompass.pkb.query.PkbItemSearchCriteria;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -41,6 +45,9 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private PkbFactEmbeddingDao factEmbeddingDao;
+
+    @Autowired
+    private PkbItemQueryRepository itemQueryRepository;
 
     @Test
     void daoLayerPersistsCanonicalPkbRecords() {
@@ -345,6 +352,55 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
 
         artifactDao.deleteByUserAndArtifactId(userId, artifactId);
         assertThat(artifactDao.findByUserAndArtifactId(userId, artifactId)).isEmpty();
+    }
+
+    @Test
+    void queryRepositoryFindsItemByUserAndItemIdWithoutCrossUserLeakage() {
+        var userId = UUID.randomUUID();
+        var otherUserId = UUID.randomUUID();
+        var observedAt = Instant.parse("2026-06-24T09:00:00Z");
+        var savedItem = itemDao.save(waterIntakeItem(userId, observedAt, "query-lookup-source"));
+
+        assertThat(itemQueryRepository.findByUserIdAndItemId(userId, savedItem.getPkbItemId()))
+                .isPresent()
+                .get()
+                .satisfies(item -> {
+                    assertThat(item.itemId()).isEqualTo(savedItem.getPkbItemId());
+                    assertThat(item.userId()).isEqualTo(userId);
+                    assertThat(item.payload()).containsEntry("substance", "water");
+                    assertThat(item.privacyScope()).containsExactly("nutrition", "health");
+                });
+        assertThat(itemQueryRepository.findByUserIdAndItemId(otherUserId, savedItem.getPkbItemId())).isEmpty();
+    }
+
+    @Test
+    void queryRepositorySearchesByPlannedFiltersAndFullTextWithinUserScope() {
+        var userId = UUID.randomUUID();
+        var otherUserId = UUID.randomUUID();
+        var observedAt = Instant.parse("2026-06-25T10:00:00Z");
+        var matchingItem = itemDao.save(waterIntakeItem(userId, observedAt, "query-search-matching"));
+
+        var inactiveItem = waterIntakeItem(userId, observedAt, "query-search-inactive");
+        inactiveItem.setStatus("inactive");
+        itemDao.save(inactiveItem);
+        itemDao.save(waterIntakeItem(otherUserId, observedAt, "query-search-other-user"));
+
+        var criteria = new PkbItemSearchCriteria(
+                userId,
+                "nutrition_intake",
+                "water",
+                "active",
+                OffsetDateTime.parse("2026-06-25T09:00:00Z"),
+                OffsetDateTime.parse("2026-06-25T11:00:00Z"),
+                OffsetDateTime.parse("2026-06-25T10:00:00Z"),
+                "nutrition",
+                "water",
+                10,
+                0);
+
+        assertThat(itemQueryRepository.search(criteria))
+                .extracting(PkbItemRecord::itemId)
+                .containsExactly(matchingItem.getPkbItemId());
     }
 
     private static PkbItemEntity waterIntakeItem(UUID userId, Instant observedAt) {
