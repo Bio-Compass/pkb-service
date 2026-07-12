@@ -1,11 +1,13 @@
 package com.biocompass.pkb.persistence;
 
 import com.biocompass.pkb.persistence.dao.PkbArtifactDao;
+import com.biocompass.pkb.persistence.dao.PkbArtifactProvenanceDao;
 import com.biocompass.pkb.persistence.dao.PkbConsentBindingDao;
 import com.biocompass.pkb.persistence.dao.PkbFactEmbeddingDao;
 import com.biocompass.pkb.persistence.dao.PkbItemDao;
 import com.biocompass.pkb.persistence.dao.PkbRelationshipDao;
 import com.biocompass.pkb.persistence.entity.PkbArtifactEntity;
+import com.biocompass.pkb.persistence.entity.PkbArtifactProvenanceEntity;
 import com.biocompass.pkb.persistence.entity.PkbConsentBindingEntity;
 import com.biocompass.pkb.persistence.entity.PkbFactEmbeddingEntity;
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
@@ -39,6 +41,9 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private PkbArtifactDao artifactDao;
+
+    @Autowired
+    private PkbArtifactProvenanceDao artifactProvenanceDao;
 
     @Autowired
     private PkbConsentBindingDao consentBindingDao;
@@ -269,6 +274,26 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
                     assertThat(savedArtifact.getSizeBytes()).isEqualTo(256L);
                 });
 
+        var artifactProvenance = PkbArtifactProvenanceEntity.builder()
+                .userId(userId)
+                .artifactId(artifactId)
+                .sourceKind("user_upload")
+                .actorType("user")
+                .workflowId("artifact-crud-upload")
+                .sourceReference("mobile-upload")
+                .extractionMethod("direct-upload")
+                .build();
+        var createdArtifactProvenance = artifactProvenanceDao.save(artifactProvenance);
+        var artifactProvenanceId = createdArtifactProvenance.getArtifactProvenanceId();
+
+        assertThat(artifactProvenanceDao.findByUserAndArtifactProvenanceId(userId, artifactProvenanceId))
+                .isPresent()
+                .get()
+                .satisfies(savedProvenance -> {
+                    assertThat(savedProvenance.getArtifactId()).isEqualTo(artifactId);
+                    assertThat(savedProvenance.getWorkflowId()).isEqualTo("artifact-crud-upload");
+                });
+
         createdArtifact.setSizeBytes(768L);
         createdArtifact.setContentType("application/vnd.biocompass.water+json");
         artifactDao.save(createdArtifact);
@@ -352,6 +377,7 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
 
         artifactDao.deleteByUserAndArtifactId(userId, artifactId);
         assertThat(artifactDao.findByUserAndArtifactId(userId, artifactId)).isEmpty();
+        assertThat(artifactProvenanceDao.findAllByArtifact(userId, artifactId)).isEmpty();
     }
 
     @Test

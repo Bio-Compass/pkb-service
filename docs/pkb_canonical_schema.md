@@ -175,6 +175,30 @@ Important constraints and indexes:
 - `pkb_item_id`, when present, must reference an item owned by the same user.
 - Indexes support user/item lookup, creation-time listing, and hash lookup.
 
+## `pkb_artifact_provenance`
+
+Append-style provenance records for artifacts stored in S3-compatible object
+storage. This table records how an external object reference entered the PKB
+without storing object bytes in PostgreSQL.
+
+| Field                    | Responsibility                                                                 |
+|--------------------------|--------------------------------------------------------------------------------|
+| `artifact_provenance_id` | Stable artifact provenance record identifier.                                  |
+| `artifact_id`            | Artifact this provenance record describes. Deleted with the artifact.          |
+| `user_id`                | Owner of the artifact and provenance row. Used for same-user integrity checks. |
+| `source_kind`            | Required source category, such as user upload, import, OCR, or enrichment.     |
+| `actor_type`             | Optional actor category responsible for registration, such as user or system.  |
+| `workflow_id`            | Optional workflow or correlation identifier for upload and enrichment chains.  |
+| `source_reference`       | Optional upstream file, URI, or source-system reference.                       |
+| `extraction_method`      | Optional method or pipeline that produced the object reference.                |
+| `created_at`             | Time the artifact provenance record was created.                               |
+
+Important constraints and indexes:
+
+- `(artifact_id, user_id)` references `pkb_artifact` so provenance cannot cross user boundaries.
+- `source_kind` must be nonblank.
+- Indexes support artifact lookup, source-kind filtering, and workflow tracing.
+
 ## `pkb_consent_binding`
 
 Consent references attached to exactly one governed PKB subject: either an item

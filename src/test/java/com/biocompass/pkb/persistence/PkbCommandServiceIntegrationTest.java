@@ -5,12 +5,16 @@ import com.biocompass.pkb.command.PkbCommandService;
 import com.biocompass.pkb.command.dto.AssociatePkbArtifactCommand;
 import com.biocompass.pkb.command.dto.CreatePkbItemCommand;
 import com.biocompass.pkb.command.dto.CreatePkbRelationshipCommand;
+import com.biocompass.pkb.command.dto.PkbArtifactConsentBindingCommand;
 import com.biocompass.pkb.command.dto.PkbProvenanceCommand;
+import com.biocompass.pkb.command.dto.RegisterPkbArtifactCommand;
 import com.biocompass.pkb.command.dto.SupersedePkbItemCommand;
 import com.biocompass.pkb.command.event.PkbDomainEvent;
 import com.biocompass.pkb.command.event.PkbDomainEventPublisher;
 import com.biocompass.pkb.command.event.PkbDomainEventType;
 import com.biocompass.pkb.persistence.dao.PkbArtifactDao;
+import com.biocompass.pkb.persistence.dao.PkbArtifactProvenanceDao;
+import com.biocompass.pkb.persistence.dao.PkbConsentBindingDao;
 import com.biocompass.pkb.persistence.dao.PkbItemDao;
 import com.biocompass.pkb.persistence.dao.PkbRelationshipDao;
 import com.biocompass.pkb.persistence.entity.PkbArtifactEntity;
@@ -49,6 +53,12 @@ class PkbCommandServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private PkbArtifactDao artifactDao;
+
+    @Autowired
+    private PkbArtifactProvenanceDao artifactProvenanceDao;
+
+    @Autowired
+    private PkbConsentBindingDao consentBindingDao;
 
     @Autowired
     private RecordingPkbDomainEventPublisher eventPublisher;
@@ -240,6 +250,63 @@ class PkbCommandServiceIntegrationTest extends AbstractPostgresIntegrationTest {
                     assertThat(event.artifactId()).isEqualTo(artifact.getArtifactId());
                     assertThat(event.pkbItemId()).isEqualTo(item.getPkbItemId());
                 });
+    }
+
+    @Test
+    void registerArtifactPersistsObjectReferenceProvenanceConsentAndEnrichmentEvent() {
+        var userId = UUID.randomUUID();
+        var documentId = UUID.randomUUID();
+        var item = commandService.handle(waterIntakeCommand(userId, "registered-artifact-item", "registered-artifact-source"));
+        eventPublisher.clear();
+
+        var registeredArtifact = commandService.handle(new RegisterPkbArtifactCommand(
+                userId,
+                item.getPkbItemId(),
+                documentId,
+                "original",
+                "application/pdf",
+                4096L,
+                "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                new PkbProvenanceCommand("User_Upload", "User", "document-upload-1", "mobile-upload", "direct-upload"),
+                new PkbArtifactConsentBindingCommand(
+                        "consent:artifact:registered",
+                        List.of("Artifact-Read"),
+                        "policy:artifact:v1",
+                        "Self",
+                        null,
+                        null
+                ),
+                true,
+                "registered-artifact-correlation"
+        ));
+
+        assertThat(artifactDao.findByUserAndArtifactId(userId, registeredArtifact.getArtifactId()))
+                .isPresent()
+                .get()
+                .satisfies(artifact -> {
+                    assertThat(artifact.getPkbItemId()).isEqualTo(item.getPkbItemId());
+                    assertThat(artifact.getObjectKey())
+                            .isEqualTo("users/%s/documents/%s/original".formatted(userId, documentId));
+                    assertThat(artifact.getContentType()).isEqualTo("application/pdf");
+                    assertThat(artifact.getSizeBytes()).isEqualTo(4096L);
+                });
+        assertThat(artifactProvenanceDao.findAllByArtifact(userId, registeredArtifact.getArtifactId()))
+                .singleElement()
+                .satisfies(provenance -> {
+                    assertThat(provenance.getSourceKind()).isEqualTo("user_upload");
+                    assertThat(provenance.getActorType()).isEqualTo("user");
+                    assertThat(provenance.getWorkflowId()).isEqualTo("document-upload-1");
+                });
+        assertThat(consentBindingDao.findAllByArtifact(userId, registeredArtifact.getArtifactId()))
+                .singleElement()
+                .satisfies(consent -> {
+                    assertThat(consent.getConsentReference()).isEqualTo("consent:artifact:registered");
+                    assertThat(consent.getConsentScope()).containsExactly("artifact-read");
+                    assertThat(consent.getPurposeOfUse()).isEqualTo("self");
+                });
+        assertThat(eventPublisher.events())
+                .extracting(PkbDomainEvent::eventType)
+                .containsExactly(PkbDomainEventType.ARTIFACT_CREATED, PkbDomainEventType.ENRICHMENT_REQUESTED);
     }
 
     private static CreatePkbItemCommand waterIntakeCommand(
