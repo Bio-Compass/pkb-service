@@ -5,11 +5,21 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-public record BioCompassActor(UUID userId, Set<String> roles) {
+public record BioCompassActor(
+        UUID userId,
+        String email,
+        boolean emailVerified,
+        boolean staff,
+        Set<String> roles
+) {
 
     public BioCompassActor {
         Objects.requireNonNull(userId, "userId must not be null");
         roles = normalizeRoles(roles);
+    }
+
+    public BioCompassActor(UUID userId, Set<String> roles) {
+        this(userId, null, false, false, roles);
     }
 
     public boolean hasAnyRole(Set<String> expectedRoles) {

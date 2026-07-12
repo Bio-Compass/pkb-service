@@ -12,7 +12,7 @@ public class OwnerScopedPkbQueryPolicy implements PkbQueryPolicy {
 
     @Override
     public void authorizeUserScope(BioCompassActor actor, UUID userId) {
-        if (!actor.userId().equals(userId) && !actor.hasAnyRole(CROSS_USER_READ_ROLES)) {
+        if (!actor.userId().equals(userId) && !actor.staff() && !actor.hasAnyRole(CROSS_USER_READ_ROLES)) {
             throw new PkbAccessDeniedException("Actor is not authorized for the requested PKB user scope.");
         }
     }

@@ -110,6 +110,12 @@ The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass`
 
 ## Configure Secrets
 
+Before enabling protected PKB endpoints, register PKB as an internal client in
+the BioCompass auth service `AUTH_INTERNAL_CLIENTS_JSON`, for example
+`{"pkb-service":"<pkb-introspection-secret>"}`. The PKB deployment must receive
+the same value as `PKB_AUTH_INTROSPECTION_SERVICE_TOKEN`; it uses that secret
+when calling `POST /api/v1/internal/auth/token/introspect/`.
+
 Create a real secret through Helm values before deploying to an environment with backing services:
 
 ```sh
@@ -119,12 +125,13 @@ helm upgrade --install pkb-service "${HELM_CHART}" \
   --set image.pullPolicy=IfNotPresent \
   --set image.tag="${IMAGE_TAG}" \
   --set secrets.create=true \
+  --set secrets.stringData.PKB_AUTH_INTROSPECTION_SERVICE_TOKEN='<pkb-introspection-secret>' \
   --set secrets.stringData.PKB_DATASOURCE_PASSWORD='<postgres-password>' \
   --set secrets.stringData.PKB_S3_ACCESS_KEY='<s3-access-key>' \
   --set secrets.stringData.PKB_S3_SECRET_KEY='<s3-secret-key>'
 ```
 
-The baseline deployment marks the secret reference as optional so the scaffold can start before PostgreSQL, Kafka, OPA, and object storage are deployed. Later implementation steps should make required secrets explicit when those dependencies are mandatory.
+The baseline deployment marks the secret reference as optional so the scaffold can start before PostgreSQL, Kafka, and object storage are deployed. Later implementation steps should make required secrets explicit when those dependencies are mandatory.
 
 ## Deploy
 

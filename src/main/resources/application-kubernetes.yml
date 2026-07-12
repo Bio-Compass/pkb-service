@@ -13,9 +13,13 @@ spring:
 
 biocompass:
   pkb:
-    opa:
-      base-url: ${PKB_OPA_BASE_URL:http://opa:8181}
-      decision-path: ${PKB_OPA_DECISION_PATH:/v1/data/biocompass/pkb/authz/allow}
+    auth:
+      default-purpose: ${PKB_AUTH_DEFAULT_PURPOSE:self}
+      introspection:
+        url: ${PKB_AUTH_INTROSPECTION_URL:http://bio-compass-auth/api/v1/internal/auth/token/introspect/}
+        service-name: ${PKB_AUTH_INTROSPECTION_SERVICE_NAME:pkb-service}
+        service-token: ${PKB_AUTH_INTROSPECTION_SERVICE_TOKEN}
+        timeout-seconds: ${PKB_AUTH_INTROSPECTION_TIMEOUT_SECONDS:5}
     storage:
       endpoint: ${PKB_S3_ENDPOINT:http://minio:9000}
       region: ${PKB_S3_REGION:eu-central-1}

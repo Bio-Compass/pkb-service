@@ -64,25 +64,6 @@ services:
       retries: 10
       start_period: 10s
 
-  opa:
-    image: openpolicyagent/opa:1.16.2
-    command:
-      - run
-      - --server
-      - --addr=0.0.0.0:8181
-      - --log-level=debug
-      - /policies
-    ports:
-      - "${PKB_OPA_PORT:-8181}:8181"
-    volumes:
-      - ./infra/local/opa/policies:/policies:ro
-    healthcheck:
-      test: ["CMD", "/opa", "eval", "true"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-
 volumes:
   postgres-data:
   minio-data:

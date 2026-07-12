@@ -4,7 +4,7 @@
 
 Implement the BioCompass Personal Knowledge Base (PKB) as a Java 25, Spring Boot 4.0.x, Gradle-based modular monolith.
 
-The service will use PostgreSQL as the canonical store, Flyway for schema migrations, HAPI FHIR as an interoperability facade, OPA for ABAC policy decisions, Kafka for asynchronous enrichment events, and S3-compatible object storage for binary artifacts.
+The service will use PostgreSQL as the canonical store, Flyway for schema migrations, HAPI FHIR as an interoperability facade, BioCompass auth service token introspection with service-local authorization policies, Kafka for asynchronous enrichment events, and S3-compatible object storage for binary artifacts.
 
 The first implementation is one deployable service with clear internal module boundaries. The architecture should remain split-ready, but the initial codebase should avoid premature microservice deployment complexity.
 
@@ -17,11 +17,11 @@ The first implementation is one deployable service with clear internal module bo
 - Persistence: PostgreSQL, Hibernate ORM 7.2.x, Flyway
 - Search: PostgreSQL full-text search first, pgvector foundation for semantic search
 - FHIR: HAPI FHIR Plain Server facade
-- Security: Spring Security OAuth2 resource server for BioCompass-issued JWTs
-- Policy: OPA for ABAC and purpose-of-use decisions
+- Security: Spring Security OAuth2 resource server using BioCompass auth token introspection
+- Policy: service-local authorization policies driven by BioCompass auth claims
 - Async: Kafka
 - Object storage: AWS S3 / MinIO-compatible API
-- Local infrastructure: Docker Compose for PostgreSQL, Kafka, MinIO, and OPA
+- Local infrastructure: Docker Compose for PostgreSQL, Kafka, and MinIO
 
 ## Implementation Steps
 
@@ -53,14 +53,13 @@ Local verification:
 
 ### 2. Add Local Development Infrastructure
 
-Provide a runnable local environment before adding persistence, policy, Kafka, storage, and FHIR behavior.
+Provide a runnable local environment before adding persistence, Kafka, storage, and FHIR behavior.
 
 Tasks:
 
-- Add Docker Compose for PostgreSQL, Kafka, MinIO, and OPA.
+- Add Docker Compose for PostgreSQL, Kafka, and MinIO.
 - Add local application profile configuration.
 - Add sample environment variables.
-- Add a sample OPA policy for development.
 - Document local startup and test commands.
 
 Acceptance criteria:
@@ -68,7 +67,7 @@ Acceptance criteria:
 - A developer can start local dependencies with Docker Compose.
 - The Spring Boot service can connect to local infrastructure.
 - Flyway can run against local PostgreSQL once migrations are added.
-- OPA, Kafka, and MinIO are reachable in local development.
+- Kafka and MinIO are reachable in local development.
 - Local setup is documented.
 
 Local verification:
@@ -188,34 +187,32 @@ Local verification:
 - Run query module unit and integration tests locally.
 - Seed local PKB items and verify ID lookup, filters, and text search.
 
-### 7. Integrate BioCompass Auth And Policy Enforcement
+### 7. Integrate BioCompass Auth And Query Policy Enforcement
 
-Integrate BioCompass identity and ABAC authorization.
+Integrate BioCompass identity and PKB query authorization.
 
 Tasks:
 
 - Configure Spring Security as an OAuth2 resource server.
-- Validate JWTs issued by the BioCompass auth service using configurable issuer and JWKS URI.
-- Map JWT claims into an internal actor context.
-- Include actor ID, user ID, roles, scopes, tenant or context if present, and purpose of use.
-- Add an OPA client.
-- Build OPA decision input from actor, action, purpose, resource metadata, privacy scope, consent scope, provenance, and trust context.
-- Enforce OPA authorization for REST and FHIR operations.
-- Provide local development defaults for policy testing without implementing a standalone auth server.
+- Introspect incoming bearer tokens through the BioCompass auth service internal token introspection endpoint.
+- Map active introspection responses into an internal actor model.
+- Include actor ID, user ID, email, email verification status, staff status, roles, scopes, tenant or context if present, and purpose of use.
+- Enforce owner-scoped query authorization using the authenticated BioCompass actor.
+- Permit staff or explicitly privileged actors to read across user scopes.
+- Provide local development defaults for auth-service token introspection without implementing a standalone auth server.
 
 Acceptance criteria:
 
-- The service validates BioCompass-issued JWTs.
-- Claims are mapped into internal authorization context.
-- OPA decisions gate protected operations.
+- The service validates BioCompass bearer tokens through auth-service introspection.
+- Introspection results are mapped into the internal actor model.
+- Query decisions gate protected PKB item read/search operations.
 - Denied requests do not expose protected PKB data.
-- Authorization behavior is covered by tests for allow, deny, and redaction outcomes.
+- Authorization behavior is covered by tests for unauthenticated, same-user, cross-user denied, and staff cross-user allowed outcomes.
 
 Local verification:
 
 - Run authorization unit tests locally.
-- Start local OPA.
-- Verify allowed and denied REST calls with local test JWTs or configured dev credentials.
+- Verify allowed and denied REST calls with configured BioCompass auth credentials.
 
 ### 8. Implement Artifact Storage Integration
 
@@ -301,7 +298,7 @@ Tasks:
   - `Provenance`
   - `Consent`
 - Route FHIR reads and writes through canonical command/query modules where supported.
-- Enforce BioCompass auth and OPA policy for FHIR operations.
+- Enforce BioCompass auth and the PKB policy model for FHIR operations.
 
 Acceptance criteria:
 
@@ -322,7 +319,7 @@ Add focused test coverage for the first production slice.
 Tasks:
 
 - Add unit tests for validation, normalization, authorization input, FHIR mapping, object key generation, and Kafka payload creation.
-- Add integration tests for PostgreSQL/Flyway, REST flows, OPA decisions, S3/MinIO artifact registration, and Kafka producer/consumer behavior.
+- Add integration tests for PostgreSQL/Flyway, REST flows, authorization decisions, S3/MinIO artifact registration, and Kafka producer/consumer behavior.
 - Add acceptance-style tests for:
   - PKB item create/read/search.
   - Denied protected-data access.
@@ -382,7 +379,7 @@ Use layered testing:
 - Unit tests for isolated domain logic and mappers.
 - Repository tests for Flyway and PostgreSQL behavior.
 - API tests for REST and FHIR behavior.
-- Policy tests for OPA allow, deny, and redaction decisions.
+- Policy tests for allow and deny decisions.
 - Storage tests for S3/MinIO object references.
 - Kafka tests for event publishing and idempotent consumption.
 
@@ -399,7 +396,7 @@ The minimum acceptance scenario for the first implementation is:
 Assumptions:
 
 - This repository owns the PKB service implementation.
-- BioCompass auth exists or will exist separately; this service validates and consumes BioCompass-issued JWTs.
+- BioCompass auth exists separately; this service validates bearer tokens through its internal introspection endpoint.
 - The initial deployment shape is a modular monolith.
 - PostgreSQL is the canonical source of truth.
 - HAPI FHIR is a facade, not the primary persistence layer.

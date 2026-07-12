@@ -3,6 +3,16 @@ spring:
     activate:
       on-profile: test
 
+biocompass:
+  pkb:
+    auth:
+      default-purpose: self
+      introspection:
+        url: http://localhost:8001/api/v1/internal/auth/token/introspect/
+        service-name: pkb-service
+        service-token: pkb-test-introspection-secret
+        timeout-seconds: 5
+
 logging:
   level:
     root: WARN

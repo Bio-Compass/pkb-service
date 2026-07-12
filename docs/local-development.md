@@ -5,7 +5,6 @@ This setup starts the infrastructure needed by the PKB service in local developm
 - PostgreSQL with pgvector
 - Apache Kafka in single-node KRaft mode
 - MinIO for S3-compatible object storage
-- OPA with a development policy bundle
 
 ## Prerequisites
 
@@ -35,13 +34,12 @@ docker compose ps
 
 ## Local Endpoints
 
-| Dependency | Endpoint | Default credentials |
-| --- | --- | --- |
-| PostgreSQL | `localhost:5432` | `pkb` / `pkb-local-password` |
-| Kafka | `localhost:9092` | none |
-| MinIO S3 API | `http://localhost:9000` | `pkb-local-access` / `pkb-local-secret` |
+| Dependency    | Endpoint                | Default credentials                     |
+|---------------|-------------------------|-----------------------------------------|
+| PostgreSQL    | `localhost:5432`        | `pkb` / `pkb-local-password`            |
+| Kafka         | `localhost:9092`        | none                                    |
+| MinIO S3 API  | `http://localhost:9000` | `pkb-local-access` / `pkb-local-secret` |
 | MinIO Console | `http://localhost:9001` | `pkb-local-access` / `pkb-local-secret` |
-| OPA | `http://localhost:8181` | none |
 
 ## Verify Dependencies
 
@@ -61,22 +59,6 @@ Verify MinIO:
 
 ```sh
 curl -fsS http://localhost:9000/minio/health/ready
-```
-
-Verify OPA:
-
-```sh
-curl -fsS http://localhost:8181/health
-```
-
-Evaluate the local development policy:
-
-```sh
-curl -fsS \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  --data '{"input":{"actor":{"user_id":"user-1","roles":["user"]},"action":"read","purpose":"self","resource":{"owner_user_id":"user-1","privacy_scope":"normal"}}}' \
-  http://localhost:8181/v1/data/biocompass/pkb/authz/allow
 ```
 
 ## Run The Service Locally
@@ -104,6 +86,27 @@ Verify the service health endpoint:
 curl -fsS http://localhost:8080/actuator/health
 ```
 
+All non-actuator endpoints require a Bearer token that can be introspected by
+the BioCompass auth service. The local profile sends tokens to
+`PKB_AUTH_INTROSPECTION_URL` with `Authorization: Bearer
+${PKB_AUTH_INTROSPECTION_SERVICE_TOKEN}` and `X-BioCompass-Service:
+${PKB_AUTH_INTROSPECTION_SERVICE_NAME}`. For local policy checks, run the auth
+service locally or point these variables at a reachable BioCompass auth service,
+then obtain an access token from the auth service and export it:
+
+```sh
+export TOKEN='<BioCompass access token>'
+export USER_ID='<BioCompass user UUID>'
+```
+
+Verify a local PKB query request after seeding `pkb_item` rows for the user:
+
+```sh
+curl -fsS \
+  -H "Authorization: Bearer ${TOKEN}" \
+  "http://localhost:8080/api/pkb/items?userId=${USER_ID}"
+```
+
 ## Run Tests
 
 Run the full test suite:
@@ -112,7 +115,7 @@ Run the full test suite:
 ./gradlew test --no-daemon
 ```
 
-The local infrastructure tests use Testcontainers to start PostgreSQL, Kafka, MinIO, and OPA automatically. They do not require the Compose stack to be running.
+The local infrastructure tests use Testcontainers to start PostgreSQL, Kafka, and MinIO automatically. They do not require the Compose stack to be running.
 
 Use [Local Verification Testcases](local-verification-testcases.md) as the checklist for local service verification after code changes.
 
