@@ -56,6 +56,7 @@ mkdir -p "${output_dir}"
 
 non_image_diff="${output_dir}/non-image-diff.txt"
 source_approval_files="${output_dir}/source-approval-files.txt"
+manual_approval_review="${output_dir}/manual-approval-review.md"
 : > "${non_image_diff}"
 : > "${source_approval_files}"
 
@@ -106,12 +107,19 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
   } >> "${GITHUB_OUTPUT}"
 fi
 
-if [ "${requires_approval}" = "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+if [ "${requires_approval}" = "true" ]; then
   {
-    echo "### Manual approval required"
+    echo "### Manual approval review"
+    echo
+    echo "Review this before approving the dev-manual-approval environment."
+    echo
+    echo "- Helm diff requires approval: ${helm_requires_approval}"
+    echo "- Source/runtime files require approval: ${source_requires_approval}"
     echo
 
     if [ "${source_requires_approval}" = "true" ]; then
+      echo "#### Source/runtime files requiring approval"
+      echo
       echo "The push changes service runtime or deployment-control files, so the deploy is not treated as image-only."
       echo
       echo '```'
@@ -121,7 +129,21 @@ if [ "${requires_approval}" = "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; the
       echo
     fi
 
+    echo "#### Full Helm diff"
+    echo
+    if [ -s "${helm_diff}" ]; then
+      echo '```diff'
+      head -c 60000 "${helm_diff}"
+      echo
+      echo '```'
+    else
+      echo "No rendered Helm diff was produced."
+    fi
+    echo
+
     if [ "${helm_requires_approval}" = "true" ]; then
+      echo "#### Non-image Helm diff"
+      echo
       echo "The Helm diff includes changes beyond container image updates."
       echo
       echo '```diff'
@@ -129,5 +151,9 @@ if [ "${requires_approval}" = "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; the
       echo
       echo '```'
     fi
-  } >> "${GITHUB_STEP_SUMMARY}"
+  } > "${manual_approval_review}"
+
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "${manual_approval_review}" >> "${GITHUB_STEP_SUMMARY}"
+  fi
 fi
