@@ -25,7 +25,15 @@ public class PkbArtifactStorageConfiguration {
         if (properties.endpoint() != null) {
             builder.endpointOverride(properties.endpoint());
         }
-        if (hasText(properties.accessKey()) && hasText(properties.secretKey())) {
+        var accessKeyConfigured = hasText(properties.accessKey());
+        var secretKeyConfigured = hasText(properties.secretKey());
+        if (accessKeyConfigured != secretKeyConfigured) {
+            throw new IllegalStateException(
+                    "biocompass.pkb.storage.access-key and biocompass.pkb.storage.secret-key must be configured together"
+            );
+        }
+
+        if (accessKeyConfigured) {
             builder.credentialsProvider(StaticCredentialsProvider.create(
                     AwsBasicCredentials.create(properties.accessKey().trim(), properties.secretKey().trim())
             ));
