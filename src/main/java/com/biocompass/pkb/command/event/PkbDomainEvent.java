@@ -44,8 +44,16 @@ public record PkbDomainEvent(
         return event(PkbDomainEventType.RELATIONSHIP_CREATED, userId, null, null, null, relationshipId, correlationId);
     }
 
+    public static PkbDomainEvent artifactCreated(UUID userId, UUID artifactId, UUID pkbItemId, String correlationId) {
+        return event(PkbDomainEventType.ARTIFACT_CREATED, userId, pkbItemId, null, artifactId, null, correlationId);
+    }
+
     public static PkbDomainEvent artifactAssociated(UUID userId, UUID artifactId, UUID pkbItemId, String correlationId) {
         return event(PkbDomainEventType.ARTIFACT_ASSOCIATED, userId, pkbItemId, null, artifactId, null, correlationId);
+    }
+
+    public static PkbDomainEvent enrichmentRequested(UUID userId, UUID artifactId, UUID pkbItemId, String correlationId) {
+        return event(PkbDomainEventType.ENRICHMENT_REQUESTED, userId, pkbItemId, null, artifactId, null, correlationId);
     }
 
     private static PkbDomainEvent event(

@@ -104,6 +104,7 @@ jobs:
     outputs:
       requires-approval: ${{ steps.classify.outputs.requires-approval }}
       image-only: ${{ steps.classify.outputs.image-only }}
+      manual-approval-url: ${{ steps.manual-approval-url.outputs.url }}
     env:
       IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
       K8S_NAMESPACE: bio-compass
@@ -275,6 +276,36 @@ jobs:
             --changed-files changed-files.txt \
             --output-dir .
 
+      - name: Upload manual approval review
+        if: steps.classify.outputs.requires-approval == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-approval-review
+          path: |
+            manual-approval-review.md
+            helm-diff.txt
+            non-image-diff.txt
+            source-approval-files.txt
+            changed-files.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Resolve manual approval review URL
+        id: manual-approval-url
+        if: steps.classify.outputs.requires-approval == 'true'
+        run: |
+          review_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          echo "url=${review_url}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo
+            echo "### Manual approval gate"
+            echo
+            echo "The dev-manual-approval environment links to this run summary so reviewers can read the Helm diff before approving."
+            echo
+            echo "${review_url}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   deploy-image-only:
     name: Deploy Image-Only Change
     runs-on: ubuntu-latest
@@ -367,7 +398,9 @@ jobs:
     timeout-minutes: 5
     needs: plan-deploy
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'true'
-    environment: dev-manual-approval
+    environment:
+      name: dev-manual-approval
+      url: ${{ needs.plan-deploy.outputs.manual-approval-url }}
     permissions:
       actions: read
       contents: read
@@ -387,7 +420,7 @@ jobs:
           fi
 
       - name: Await manual approval
-        run: echo "Manual approval completed for non-image Helm diff."
+        run: echo "Manual approval completed after reviewing ${{ needs.plan-deploy.outputs.manual-approval-url }}."
 
   deploy-approved-change:
     name: Deploy Approved Change
