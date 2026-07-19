@@ -32,6 +32,7 @@ class PkbSchemaMigrationTest extends AbstractPostgresIntegrationTest {
                         "pkb_relationship",
                         "pkb_consent_binding",
                         "pkb_artifact",
+                        "pkb_artifact_provenance",
                         "pkb_fact_embedding");
 
         assertThat(columnTypes("pkb_item"))
@@ -59,6 +60,7 @@ class PkbSchemaMigrationTest extends AbstractPostgresIntegrationTest {
                         "idx_pkb_item_search_document_gin",
                         "idx_pkb_relationship_user_type",
                         "idx_pkb_artifact_user_item",
+                        "idx_pkb_artifact_provenance_artifact",
                         "idx_pkb_consent_binding_scope_gin",
                         "idx_pkb_fact_embedding_vector_hnsw");
     }
@@ -100,6 +102,23 @@ class PkbSchemaMigrationTest extends AbstractPostgresIntegrationTest {
                 """, firstUserId, secondItemId))
                 .isInstanceOf(SQLException.class)
                 .hasMessageContaining("fk_pkb_artifact_item_owner");
+
+        var artifactId = UUID.randomUUID();
+        execute("""
+                INSERT INTO pkb_artifact (artifact_id, user_id, pkb_item_id, object_key)
+                VALUES (?, ?, ?, 'users/test/documents/provenance/original.pdf')
+                """, artifactId, firstUserId, firstItemId);
+        execute("""
+                INSERT INTO pkb_artifact_provenance (artifact_id, user_id, source_kind)
+                VALUES (?, ?, 'user_upload')
+                """, artifactId, firstUserId);
+
+        assertThatThrownBy(() -> execute("""
+                INSERT INTO pkb_artifact_provenance (artifact_id, user_id, source_kind)
+                VALUES (?, ?, 'user_upload')
+                """, artifactId, secondUserId))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("fk_pkb_artifact_provenance_artifact_owner");
     }
 
     @Test

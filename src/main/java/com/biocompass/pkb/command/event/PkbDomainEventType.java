@@ -4,7 +4,9 @@ public enum PkbDomainEventType {
     ITEM_CREATED("pkb.item.created"),
     ITEM_SUPERSESSION_LINKED("pkb.item.supersession-linked"),
     RELATIONSHIP_CREATED("pkb.relationship.created"),
-    ARTIFACT_ASSOCIATED("pkb.artifact.associated");
+    ARTIFACT_CREATED("pkb.artifact.created"),
+    ARTIFACT_ASSOCIATED("pkb.artifact.associated"),
+    ENRICHMENT_REQUESTED("pkb.enrichment.requested");
 
     private final String value;
 

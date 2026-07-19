@@ -3,7 +3,9 @@ package com.biocompass.pkb.command;
 import com.biocompass.pkb.command.dto.AssociatePkbArtifactCommand;
 import com.biocompass.pkb.command.dto.CreatePkbItemCommand;
 import com.biocompass.pkb.command.dto.CreatePkbRelationshipCommand;
+import com.biocompass.pkb.command.dto.PkbArtifactConsentBindingCommand;
 import com.biocompass.pkb.command.dto.PkbProvenanceCommand;
+import com.biocompass.pkb.command.dto.RegisterPkbArtifactCommand;
 import com.biocompass.pkb.command.dto.SupersedePkbItemCommand;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
@@ -89,6 +91,44 @@ class PkbCommandValidatorTest {
 
         assertThat(validationMessages(command))
                 .contains("artifactId is required", "pkbItemId is required");
+    }
+
+    @Test
+    void rejectsInvalidArtifactRegistrationMetadata() {
+        var command = new RegisterPkbArtifactCommand(
+                null,
+                null,
+                null,
+                "../original.pdf",
+                " ",
+                -1L,
+                "not-a-sha",
+                new PkbProvenanceCommand(" ", null, null, null, null),
+                new PkbArtifactConsentBindingCommand(
+                        " ",
+                        List.of(" "),
+                        null,
+                        null,
+                        Instant.parse("2026-06-21T00:00:00Z"),
+                        Instant.parse("2026-06-20T00:00:00Z")
+                ),
+                true,
+                null
+        );
+
+        assertThat(validationMessages(command))
+                .contains(
+                        "userId is required",
+                        "documentId is required",
+                        "objectName must be a lowercase file name without path separators",
+                        "contentType is required",
+                        "sizeBytes must be zero or greater",
+                        "sha256 must be a 64-character hex digest",
+                        "provenance.sourceKind is required",
+                        "artifactConsent.consentReference is required",
+                        "artifactConsent.consentScope entries must not be blank",
+                        "artifactConsent validUntil must not be before validFrom"
+                );
     }
 
     private List<String> validationMessages(Object command) {

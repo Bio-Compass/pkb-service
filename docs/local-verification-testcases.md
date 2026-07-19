@@ -16,6 +16,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | AUTO-002 | Qodana static-analysis report | `qodana scan --save-report --results-dir .qodana/results`                                                                                     | Command exits successfully and writes `.qodana/results/qodana.sarif.json` plus `.qodana/results/report/index.html`.                                                           |
 | AUTO-003 | PKB command module tests      | `./gradlew test --tests 'com.biocompass.pkb.command.*' --tests 'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest' --no-daemon` | Command DTO validation, metadata normalization, transactional writes, supersession, relationship creation, artifact association, and after-commit domain event behavior pass. |
 | AUTO-004 | CI deploy change classifier   | `./gradlew testCiScripts --no-daemon`                                                                                                         | Classifier allows image-only Helm diffs without approval, requires approval for service/runtime or non-image Helm changes, and writes a manual approval review with the full Helm diff. |
+| AUTO-005 | PKB artifact storage integration tests | `./gradlew test --tests 'com.biocompass.pkb.artifact.*' --tests 'com.biocompass.pkb.command.*' --tests 'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbPersistenceDaoIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbSchemaMigrationTest' --no-daemon` | Deterministic object-key generation, artifact registration validation, object-reference persistence, artifact provenance, consent binding, and enrichment event behavior pass. |
 
 ## Local Service Testcases
 
@@ -46,12 +47,13 @@ Start the service with the local profile:
 | LOCAL-011 | PKB item search                      | After seeding `pkb_item` rows, export `TOKEN` to a BioCompass access token that is active at the configured auth introspection endpoint, then run `curl -fsS -H "Authorization: Bearer ${TOKEN}" 'http://localhost:8080/api/pkb/items?userId=<user-id>&entityType=observation&status=active&text=hydration'` | Response contains only matching items for the authenticated user scope.                               |
 | LOCAL-012 | PKB unauthenticated query denial     | `curl -fsS -o /dev/null -w '%{http_code}' 'http://localhost:8080/api/pkb/items?userId=<user-id>'`                                                                                                                                                                                                            | Response status is `401`.                                                                             |
 | LOCAL-013 | PKB cross-user query denial          | Export `TOKEN` to a non-staff BioCompass access token for one user, then run `curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" 'http://localhost:8080/api/pkb/items?userId=<different-user-id>'`                                                                                   | Response code is `403`.                                                                               |
+| LOCAL-014 | Artifact metadata registration       | After auth/API exposure and local MinIO startup, register artifact metadata for a document object key such as `users/{user_id}/documents/{document_id}/original`.                                                                                                                                            | PostgreSQL contains the `pkb_artifact`, `pkb_artifact_provenance`, and optional artifact consent rows; object bytes are not stored in PostgreSQL. |
 
 ## Feature Testcase Backlog
 
 Add concrete local service testcases here as features land:
 
 - Item create/update/delete HTTP flows.
-- Artifact registration and MinIO object-reference behavior.
+- Artifact object upload/download HTTP flows after metadata registration.
 - Kafka event publication and consumer/idempotency behavior.
 - FHIR mapping and resource retrieval behavior.

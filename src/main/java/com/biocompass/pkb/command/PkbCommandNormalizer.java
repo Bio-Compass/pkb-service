@@ -2,7 +2,12 @@ package com.biocompass.pkb.command;
 
 import com.biocompass.pkb.command.dto.CreatePkbItemCommand;
 import com.biocompass.pkb.command.dto.CreatePkbRelationshipCommand;
+import com.biocompass.pkb.command.dto.PkbArtifactConsentBindingCommand;
 import com.biocompass.pkb.command.dto.PkbProvenanceCommand;
+import com.biocompass.pkb.command.dto.RegisterPkbArtifactCommand;
+import com.biocompass.pkb.persistence.entity.PkbArtifactEntity;
+import com.biocompass.pkb.persistence.entity.PkbArtifactProvenanceEntity;
+import com.biocompass.pkb.persistence.entity.PkbConsentBindingEntity;
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
 import com.biocompass.pkb.persistence.entity.PkbProvenanceEntity;
 import com.biocompass.pkb.persistence.entity.PkbRelationshipEntity;
@@ -11,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 @Component
 public class PkbCommandNormalizer {
@@ -51,6 +57,50 @@ public class PkbCommandNormalizer {
                 .fromItemId(command.fromItemId())
                 .toItemId(command.toItemId())
                 .relationshipType(normalizeCanonicalCode(command.relationshipType()))
+                .build();
+    }
+
+    public PkbArtifactEntity toArtifactEntity(RegisterPkbArtifactCommand command, String objectKey) {
+        return PkbArtifactEntity.builder()
+                .userId(command.userId())
+                .pkbItemId(command.pkbItemId())
+                .objectKey(objectKey)
+                .contentType(normalizeCanonicalCode(command.contentType()))
+                .sha256(normalizeCanonicalCode(command.sha256()))
+                .sizeBytes(command.sizeBytes())
+                .build();
+    }
+
+    public PkbArtifactProvenanceEntity toArtifactProvenanceEntity(
+            PkbProvenanceCommand command,
+            UUID userId,
+            UUID artifactId
+    ) {
+        return PkbArtifactProvenanceEntity.builder()
+                .userId(userId)
+                .artifactId(artifactId)
+                .sourceKind(normalizeCanonicalCode(command.sourceKind()))
+                .actorType(normalizeCanonicalCode(command.actorType()))
+                .workflowId(normalizeFreeText(command.workflowId()))
+                .sourceReference(normalizeFreeText(command.sourceReference()))
+                .extractionMethod(normalizeFreeText(command.extractionMethod()))
+                .build();
+    }
+
+    public PkbConsentBindingEntity toArtifactConsentBindingEntity(
+            PkbArtifactConsentBindingCommand command,
+            UUID userId,
+            UUID artifactId
+    ) {
+        return PkbConsentBindingEntity.builder()
+                .userId(userId)
+                .artifactId(artifactId)
+                .consentReference(normalizeFreeText(command.consentReference()))
+                .consentScope(normalizeScopes(command.consentScope()))
+                .policyReference(normalizeFreeText(command.policyReference()))
+                .purposeOfUse(normalizeCanonicalCode(command.purposeOfUse()))
+                .validFrom(command.validFrom())
+                .validUntil(command.validUntil())
                 .build();
     }
 

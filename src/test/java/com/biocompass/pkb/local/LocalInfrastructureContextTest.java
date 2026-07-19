@@ -18,6 +18,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -89,6 +90,7 @@ class LocalInfrastructureContextTest {
         assertThat(localInfrastructureProperties.storage().endpoint()).isEqualTo(URI.create(minioEndpoint()));
         assertThat(localInfrastructureProperties.storage().bucket()).isEqualTo("pkb-local");
         assertThat(localInfrastructureProperties.storage().pathStyleAccessEnabled()).isTrue();
+        assertThat(applicationContext.getBeanNamesForType(S3Client.class)).contains("pkbArtifactS3Client");
     }
 
     @Test
