@@ -30,7 +30,7 @@ The PKB is NOT:
 ```text
 PostgreSQL canonical PKB
 + HAPI FHIR interoperability facade
-+ ABAC policy engine (OPA)
++ service-local authorization policy engine
 + S3-compatible object storage
 + pgvector + PostgreSQL full-text search
 + optional Elasticsearch projection later
@@ -49,8 +49,8 @@ PostgreSQL canonical PKB
         │                  │                  │
         ▼                  ▼                  ▼
 ┌──────────────┐  ┌────────────────┐  ┌────────────────┐
-│ PKB Command  │  │ PKB Query      │  │ Policy Service │
-│ Service      │  │ Service        │  │ (OPA)          │
+│ PKB Command  │  │ PKB Query      │  │ Authorization  │
+│ Service      │  │ Service        │  │ Policies       │
 └──────┬───────┘  └────────┬───────┘  └────────────────┘
        │                   │
        ▼                   ▼
@@ -401,20 +401,18 @@ Recommended stack:
 ```text
 OIDC/OAuth2
 + Spring Security
-+ OPA
++ PKB authorization policies
 + PostgreSQL RLS
 ```
 
 ---
 
-# OPA Policy Example
+# Policy Example
 
-```rego
-allow {
-    input.actor.role == "doctor"
-    input.resource.privacy_scope[_] == "medical"
-    input.purpose == "treatment"
-}
+```text
+allow query when actor.user_id == requested_user_id
+allow cross-user query when actor.is_staff == true
+allow cross-user query when actor has pkb:read:any authority
 ```
 
 ---
@@ -476,8 +474,8 @@ HAPI FHIR
 
 ```text
 Spring Security
-OPA
 OAuth2/OIDC
+PKB authorization policies
 ```
 
 ---
@@ -588,7 +586,7 @@ PostgreSQL
 + JSONB
 + pgvector
 + HAPI FHIR
-+ OPA
++ PKB authorization policies
 + S3-compatible storage
 ```
 

@@ -27,6 +27,14 @@ class OwnerScopedPkbQueryPolicyTest {
     }
 
     @Test
+    void authorizesCrossUserScopeForBioCompassStaff() {
+        UUID actorUserId = UUID.randomUUID();
+        UUID requestedUserId = UUID.randomUUID();
+
+        policy.authorizeUserScope(new BioCompassActor(actorUserId, null, true, true, Set.of("staff")), requestedUserId);
+    }
+
+    @Test
     void deniesDifferentUserScopeWithoutCrossUserRole() {
         UUID actorUserId = UUID.randomUUID();
         UUID requestedUserId = UUID.randomUUID();
