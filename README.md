@@ -73,6 +73,14 @@ set +a
 The tests use Testcontainers for infrastructure dependencies, so the Compose stack does not need to be running.
 Use [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as the service verification checklist after code changes.
 
+After a feature that affects startup, persistence, security, or HTTP behavior, keep the local service running and execute the black-box E2E suite:
+
+```sh
+./gradlew e2eTest --no-daemon
+```
+
+The E2E suite seeds PostgreSQL, starts a temporary BioCompass auth introspection stub on the local-profile default port, and drives the service through HTTP with opaque Bearer tokens.
+
 ### Qodana Report
 
 The Qodana GitHub Actions workflow uploads a `qodana-report` artifact for each run. The artifact includes the SARIF output, Qodana logs, and the saved HTML report under `report/index.html`.

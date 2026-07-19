@@ -13,6 +13,20 @@ java {
     }
 }
 
+sourceSets {
+    e2eTest {
+        java.srcDir 'src/e2eTest/java'
+        resources.srcDir 'src/e2eTest/resources'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    e2eTestImplementation.extendsFrom testImplementation
+    e2eTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
 dependencies {
     implementation platform('org.springframework.boot:spring-boot-dependencies:4.0.6')
     implementation platform('software.amazon.awssdk:bom:2.44.3')
@@ -50,6 +64,14 @@ dependencies {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+}
+
+tasks.register('e2eTest', Test) {
+    description = 'Runs end-to-end tests against a locally running PKB service.'
+    group = 'verification'
+    testClassesDirs = sourceSets.e2eTest.output.classesDirs
+    classpath = sourceSets.e2eTest.runtimeClasspath
+    shouldRunAfter tasks.named('test')
 }
 
 tasks.register('testCiScripts', Exec) {
