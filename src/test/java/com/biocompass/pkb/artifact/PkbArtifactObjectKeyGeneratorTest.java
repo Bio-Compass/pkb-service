@@ -1,15 +1,19 @@
 package com.biocompass.pkb.artifact;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@SpringJUnitConfig(PkbArtifactObjectKeyGenerator.class)
 class PkbArtifactObjectKeyGeneratorTest {
 
-    private final PkbArtifactObjectKeyGenerator generator = new PkbArtifactObjectKeyGenerator();
+    @Autowired
+    private PkbArtifactObjectKeyGenerator generator;
 
     @Test
     void generatesDocumentObjectKeysUsingArchitectureConvention() {
