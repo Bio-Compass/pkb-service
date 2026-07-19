@@ -1,5 +1,6 @@
 package com.biocompass.pkb.query;
 
+import com.biocompass.pkb.config.OpenApiConfig;
 import com.biocompass.pkb.config.SecurityConfig;
 import com.biocompass.pkb.security.BioCompassActorAuthenticationResolver;
 import com.biocompass.pkb.security.BioCompassActorMapper;
@@ -51,6 +52,23 @@ class PkbItemQueryControllerSecurityTest {
         var response = send(HttpRequest.newBuilder(uri("/actuator/health")).GET().build());
 
         assertThat(response.statusCode()).isEqualTo(HttpStatus.OK.value());
+    }
+
+    @Test
+    void openApiEndpointRemainsPublic() throws Exception {
+        var response = send(HttpRequest.newBuilder(uri("/v3/api-docs")).GET().build());
+
+        assertThat(response.statusCode()).isEqualTo(HttpStatus.OK.value());
+        assertThat(response.body())
+                .contains("\"openapi\"", "\"/api/pkb/items\"", "\"bearerAuth\"");
+    }
+
+    @Test
+    void swaggerUiEndpointRemainsPublic() throws Exception {
+        var response = send(HttpRequest.newBuilder(uri("/swagger-ui/index.html")).GET().build());
+
+        assertThat(response.statusCode()).isEqualTo(HttpStatus.OK.value());
+        assertThat(response.body()).contains("Swagger UI");
     }
 
     @Test
@@ -114,6 +132,7 @@ class PkbItemQueryControllerSecurityTest {
     })
     @Import({
             SecurityConfig.class,
+            OpenApiConfig.class,
             BioCompassActorAuthenticationResolver.class,
             OwnerScopedPkbQueryPolicy.class,
             UserIdArgumentResolver.class,
