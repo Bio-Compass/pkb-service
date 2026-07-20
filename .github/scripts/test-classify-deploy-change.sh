@@ -114,6 +114,18 @@ FILES
 run_case "datasource-password-helm" "2" "false" "true" "true" "false"
 assert_file_contains "datasource-password-helm" "${tmp_dir}/datasource-password-helm/manual-approval-review.md" "PKB_DATASOURCE_PASSWORD"
 
+case_dir="${tmp_dir}/suppressed-secret-helm"
+mkdir -p "${case_dir}"
+cat > "${case_dir}/helm-diff.txt" <<'DIFF'
+bio-compass, pkb-service, Secret (v1) has changed:
+  Secret data suppressed
+DIFF
+cat > "${case_dir}/changed-files.txt" <<'FILES'
+docs/kubernetes-vm-deployment.md
+FILES
+run_case "suppressed-secret-helm" "2" "false" "true" "true" "false"
+assert_file_contains "suppressed-secret-helm" "${tmp_dir}/suppressed-secret-helm/manual-approval-review.md" "Secret (v1) has changed"
+
 case_dir="${tmp_dir}/source-runtime-change"
 mkdir -p "${case_dir}"
 cat > "${case_dir}/helm-diff.txt" <<'DIFF'
