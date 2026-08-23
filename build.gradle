@@ -76,9 +76,9 @@ tasks.register('e2eTest', Test) {
 }
 
 tasks.register('testCiScripts', Exec) {
-    description = 'Runs tests for GitHub Actions helper scripts.'
+    description = 'Runs tests for GitHub Actions deployment scripts.'
     group = 'verification'
-    commandLine 'bash', '.github/scripts/test-classify-deploy-change.sh'
+    commandLine 'bash', '.github/scripts/test-ci-scripts.sh'
 }
 
 tasks.named('test') {

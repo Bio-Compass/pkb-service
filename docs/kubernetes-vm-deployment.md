@@ -82,10 +82,12 @@ helm upgrade --install pkb-service oci://ghcr.io/bio-compass/charts/pkb-service 
   --values <bio-compass-helm>/values/dev/pkb-service.yaml \
   --set image.repository=ghcr.io/bio-compass/pkb-service \
   --set image.tag=<image-tag> \
-  --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD=<temporary-file-from-GitHub-secret>
+  --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD=<temporary-file-from-GitHub-secret> \
+  --set-file secrets.stringData.PKB_S3_ACCESS_KEY=<temporary-file-from-GitHub-secret> \
+  --set-file secrets.stringData.PKB_S3_SECRET_KEY=<temporary-file-from-GitHub-secret>
 ```
 
-The workflow reads `PKB_DATASOURCE_PASSWORD` from the GitHub `dev` environment or repository secrets and passes it to Helm as `secrets.stringData.PKB_DATASOURCE_PASSWORD`. The plan job uses `helm diff --suppress-secrets`, so secret resource changes remain visible for approval classification without uploading secret values in the workflow artifact.
+The workflow reads `PKB_DATASOURCE_PASSWORD`, `PKB_S3_ACCESS_KEY`, and `PKB_S3_SECRET_KEY` from the GitHub `dev` environment or repository secrets. It writes each into a temporary file and passes it to Helm with `--set-file`, so the values are created only in the release Kubernetes Secret and are never shown in command output or the Helm diff. MinIO consumes the S3 keys as its root credentials and PKB consumes them as its S3 client credentials. The plan job uses `helm diff --suppress-secrets`, so secret resource changes remain visible for approval classification without uploading secret values in the workflow artifact.
 
 The plan job writes the repository change list and Helm diff to the job log and step summary. When manual approval is required, it also writes a dedicated manual approval review with the full Helm diff, uploads that review as a workflow artifact, and attaches the run-summary URL to the `dev-manual-approval` environment. The diff is calculated with the same dev values file and GitHub-provided datasource password that the deployment jobs use. The workflow deploys automatically when the rendered Helm diff changes only the container image. It waits on the `dev-manual-approval` GitHub environment when the Helm diff includes any non-image or Secret change.
 
@@ -100,6 +102,8 @@ The deploy jobs require credentials in the GitHub `dev` environment or repositor
 - `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
 - `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
 - `PKB_DATASOURCE_PASSWORD`: stable PostgreSQL password for the deployed PKB datasource.
+- `PKB_S3_ACCESS_KEY`: MinIO root user and PKB S3 access key.
+- `PKB_S3_SECRET_KEY`: MinIO root password and PKB S3 secret key.
 
 The Helm chart reference can be overridden with repository variables:
 
@@ -175,6 +179,14 @@ helm status pkb-service -n bio-compass
 kubectl get pods -n bio-compass
 kubectl get svc -n bio-compass
 kubectl describe deployment/pkb-service -n bio-compass
+```
+
+The PKB chart deploys MinIO as a private, single-replica StatefulSet with a persistent 20Gi `ReadWriteOnce` volume. Verify it and the PKB bucket initialization before registering artifacts:
+
+```sh
+kubectl rollout status statefulset/minio-pkb-service -n bio-compass --timeout=180s
+kubectl get service/minio-pkb-service,statefulset/minio-pkb-service,pvc -n bio-compass
+kubectl logs deployment/pkb-service -n bio-compass -c initialize-minio-bucket --tail=50
 ```
 
 Forward the service locally and verify the health endpoint:
