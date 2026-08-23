@@ -20,7 +20,7 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Start PostgreSQL, Kafka, and MinIO:
+Start PostgreSQL, Kafka, MinIO, and OPA:
 
 ```sh
 docker compose --env-file .env up -d
@@ -48,6 +48,7 @@ By default, the service listens on `http://localhost:8080` and uses these local 
 | Kafka | `localhost:9092` |
 | MinIO S3 API | `http://localhost:9000` |
 | MinIO Console | `http://localhost:9001` |
+| OPA | `http://localhost:8181` |
 
 Verify the service health endpoint:
 
