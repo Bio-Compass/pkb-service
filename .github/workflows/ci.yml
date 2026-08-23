@@ -144,6 +144,8 @@ jobs:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
           KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
           PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
+          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
+          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
         run: |
           if [ -z "${HELM_REGISTRY_TOKEN}" ]; then
             echo "BIO_COMPASS_HELM_TOKEN or GITHUB_TOKEN is required to read the Helm chart from ${REGISTRY}." >&2
@@ -162,6 +164,11 @@ jobs:
 
           if [ -z "${PKB_DATASOURCE_PASSWORD}" ]; then
             echo "PKB_DATASOURCE_PASSWORD secret is required to pin the deployed datasource password." >&2
+            exit 1
+          fi
+
+          if [ -z "${PKB_S3_ACCESS_KEY}" ] || [ -z "${PKB_S3_SECRET_KEY}" ]; then
+            echo "PKB_S3_ACCESS_KEY and PKB_S3_SECRET_KEY secrets are required for PKB MinIO." >&2
             exit 1
           fi
 
@@ -237,6 +244,8 @@ jobs:
         id: diff
         env:
           PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
+          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
+          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
@@ -244,8 +253,12 @@ jobs:
           fi
 
           password_file="$(mktemp)"
-          trap 'rm -f "${password_file}"' EXIT
+          s3_access_key_file="$(mktemp)"
+          s3_secret_key_file="$(mktemp)"
+          trap 'rm -f "${password_file}" "${s3_access_key_file}" "${s3_secret_key_file}"' EXIT
           printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
+          printf '%s' "${PKB_S3_ACCESS_KEY}" > "${s3_access_key_file}"
+          printf '%s' "${PKB_S3_SECRET_KEY}" > "${s3_secret_key_file}"
 
           set +e
           helm diff upgrade "${SERVICE_NAME}" "${HELM_CHART}" \
@@ -260,6 +273,8 @@ jobs:
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}" \
             --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}" \
+            --set-file secrets.stringData.PKB_S3_ACCESS_KEY="${s3_access_key_file}" \
+            --set-file secrets.stringData.PKB_S3_SECRET_KEY="${s3_secret_key_file}" \
             > helm-diff.txt
           diff_status=$?
           set -e
@@ -392,6 +407,8 @@ jobs:
       - name: Deploy service
         env:
           PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
+          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
+          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
@@ -399,8 +416,12 @@ jobs:
           fi
 
           password_file="$(mktemp)"
-          trap 'rm -f "${password_file}"' EXIT
+          s3_access_key_file="$(mktemp)"
+          s3_secret_key_file="$(mktemp)"
+          trap 'rm -f "${password_file}" "${s3_access_key_file}" "${s3_secret_key_file}"' EXIT
           printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
+          printf '%s' "${PKB_S3_ACCESS_KEY}" > "${s3_access_key_file}"
+          printf '%s' "${PKB_S3_SECRET_KEY}" > "${s3_secret_key_file}"
 
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
@@ -408,7 +429,9 @@ jobs:
             --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}" \
-            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}"
+            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}" \
+            --set-file secrets.stringData.PKB_S3_ACCESS_KEY="${s3_access_key_file}" \
+            --set-file secrets.stringData.PKB_S3_SECRET_KEY="${s3_secret_key_file}"
 
       - name: Wait for rollout
         run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s
@@ -516,6 +539,8 @@ jobs:
       - name: Deploy service
         env:
           PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
+          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
+          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
@@ -523,8 +548,12 @@ jobs:
           fi
 
           password_file="$(mktemp)"
-          trap 'rm -f "${password_file}"' EXIT
+          s3_access_key_file="$(mktemp)"
+          s3_secret_key_file="$(mktemp)"
+          trap 'rm -f "${password_file}" "${s3_access_key_file}" "${s3_secret_key_file}"' EXIT
           printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
+          printf '%s' "${PKB_S3_ACCESS_KEY}" > "${s3_access_key_file}"
+          printf '%s' "${PKB_S3_SECRET_KEY}" > "${s3_secret_key_file}"
 
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
@@ -532,7 +561,9 @@ jobs:
             --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}" \
-            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}"
+            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}" \
+            --set-file secrets.stringData.PKB_S3_ACCESS_KEY="${s3_access_key_file}" \
+            --set-file secrets.stringData.PKB_S3_SECRET_KEY="${s3_secret_key_file}"
 
       - name: Wait for rollout
         run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s
