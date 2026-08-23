@@ -200,7 +200,7 @@ jobs:
           fi
 
           {
-            echo "### Repository changes for deploy classification"
+            echo "### Repository changes for deploy review"
             echo
             echo '```'
             head -c 20000 changed-files.txt
@@ -358,7 +358,6 @@ jobs:
           bash .github/scripts/classify-deploy-change.sh \
             --helm-diff helm-diff.txt \
             --diff-status "${{ steps.diff.outputs.status }}" \
-            --changed-files changed-files.txt \
             --output-dir .
 
       - name: Upload manual approval review
@@ -370,7 +369,6 @@ jobs:
             manual-approval-review.md
             helm-diff.txt
             non-image-diff.txt
-            source-approval-files.txt
             changed-files.txt
           if-no-files-found: error
           retention-days: 14
