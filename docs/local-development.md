@@ -119,6 +119,14 @@ The local infrastructure tests use Testcontainers to start PostgreSQL, Kafka, an
 
 Use [Local Verification Testcases](local-verification-testcases.md) as the checklist for local service verification after code changes.
 
+When a feature affects startup, persistence, security, or HTTP behavior, keep the local service running and execute the black-box E2E suite:
+
+```sh
+./gradlew e2eTest --no-daemon
+```
+
+The E2E suite seeds PostgreSQL, starts a temporary BioCompass auth introspection stub on the local-profile default port, and drives the service through HTTP with opaque Bearer tokens.
+
 ## Stop Infrastructure
 
 Stop containers without deleting data:
