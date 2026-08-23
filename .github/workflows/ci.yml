@@ -48,11 +48,82 @@ jobs:
       - name: Run tests
         run: ./gradlew test --no-daemon
 
+  e2e-test:
+    name: Local Service E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Prepare local environment
+        run: cp .env.example .env
+
+      - name: Start local dependencies
+        run: docker compose --env-file .env up -d --wait
+
+      - name: Start local PKB service
+        run: |
+          mkdir -p build/e2e
+          set -a
+          source .env
+          set +a
+          ./gradlew bootRun --args='--spring.profiles.active=local' --no-daemon > build/e2e/pkb-service.log 2>&1 &
+          echo "$!" > build/e2e/pkb-service.pid
+
+      - name: Wait for local PKB service
+        run: |
+          for attempt in {1..60}; do
+            if curl -fsS http://localhost:8080/actuator/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "PKB service did not become healthy in time." >&2
+          cat build/e2e/pkb-service.log >&2
+          exit 1
+
+      - name: Run E2E tests
+        run: ./gradlew e2eTest --no-daemon
+
+      - name: Stop local PKB service
+        if: always()
+        run: |
+          if [ -f build/e2e/pkb-service.pid ]; then
+            kill "$(cat build/e2e/pkb-service.pid)" || true
+          fi
+
+      - name: Stop local dependencies
+        if: always()
+        run: docker compose --env-file .env down -v
+
+      - name: Upload PKB service log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pkb-service-e2e-log
+          path: build/e2e/pkb-service.log
+          if-no-files-found: ignore
+
   publish-image:
     name: Build and Push Image
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: test
+    needs:
+      - test
+      - e2e-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
@@ -129,7 +200,7 @@ jobs:
           fi
 
           {
-            echo "### Repository changes for deploy classification"
+            echo "### Repository changes for deploy review"
             echo
             echo '```'
             head -c 20000 changed-files.txt
@@ -302,7 +373,6 @@ jobs:
           bash .github/scripts/classify-deploy-change.sh \
             --helm-diff helm-diff.txt \
             --diff-status "${{ steps.diff.outputs.status }}" \
-            --changed-files changed-files.txt \
             --output-dir .
 
       - name: Upload manual approval review
@@ -314,7 +384,6 @@ jobs:
             manual-approval-review.md
             helm-diff.txt
             non-image-diff.txt
-            source-approval-files.txt
             changed-files.txt
           if-no-files-found: error
           retention-days: 14
