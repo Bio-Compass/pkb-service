@@ -13,7 +13,6 @@ run_case() {
   local expected_image_only="$3"
   local expected_requires_approval="$4"
   local expected_helm_requires_approval="$5"
-  local expected_source_requires_approval="$6"
   local work_dir="${tmp_dir}/${name}"
 
   mkdir -p "${work_dir}"
@@ -25,13 +24,11 @@ run_case() {
     "${classifier}" \
       --helm-diff "${work_dir}/helm-diff.txt" \
       --diff-status "${diff_status}" \
-      --changed-files "${work_dir}/changed-files.txt" \
       --output-dir "${work_dir}"
 
   assert_output "${name}" "${github_output}" "image-only" "${expected_image_only}"
   assert_output "${name}" "${github_output}" "requires-approval" "${expected_requires_approval}"
   assert_output "${name}" "${github_output}" "helm-requires-approval" "${expected_helm_requires_approval}"
-  assert_output "${name}" "${github_output}" "source-requires-approval" "${expected_source_requires_approval}"
 
   if [ "${expected_requires_approval}" = "true" ]; then
     assert_file_contains "${name}" "${work_dir}/manual-approval-review.md" "### Manual approval review"
@@ -75,6 +72,22 @@ assert_file_contains() {
   fi
 }
 
+assert_file_does_not_contain() {
+  local name="$1"
+  local file="$2"
+  local pattern="$3"
+
+  if grep -Fq -- "${pattern}" "${file}"; then
+    echo "${name}: expected ${file} not to contain ${pattern}" >&2
+    exit 1
+  fi
+}
+
+assert_file_does_not_contain \
+  "workflow-classifier-integration" \
+  "${script_dir}/../workflows/ci.yml" \
+  "--changed-files"
+
 case_dir="${tmp_dir}/image-only-helm"
 mkdir -p "${case_dir}"
 cat > "${case_dir}/helm-diff.txt" <<'DIFF'
@@ -82,10 +95,7 @@ bio-compass, pkb-service, Deployment (apps) has changed:
 -        image: ghcr.io/bio-compass/pkb-service:main-old
 +        image: ghcr.io/bio-compass/pkb-service:main-new
 DIFF
-cat > "${case_dir}/changed-files.txt" <<'FILES'
-docs/kubernetes-vm-deployment.md
-FILES
-run_case "image-only-helm" "2" "true" "false" "false" "false"
+run_case "image-only-helm" "2" "true" "false" "false"
 
 case_dir="${tmp_dir}/non-image-helm"
 mkdir -p "${case_dir}"
@@ -96,10 +106,7 @@ bio-compass, pkb-service, Deployment (apps) has changed:
 -        name: OLD_VALUE
 +        name: NEW_VALUE
 DIFF
-cat > "${case_dir}/changed-files.txt" <<'FILES'
-docs/kubernetes-vm-deployment.md
-FILES
-run_case "non-image-helm" "2" "false" "true" "true" "false"
+run_case "non-image-helm" "2" "false" "true" "true"
 
 case_dir="${tmp_dir}/datasource-password-helm"
 mkdir -p "${case_dir}"
@@ -108,10 +115,7 @@ bio-compass, pkb-service, Secret (v1) has changed:
 -  PKB_DATASOURCE_PASSWORD: old-redacted
 +  PKB_DATASOURCE_PASSWORD: new-redacted
 DIFF
-cat > "${case_dir}/changed-files.txt" <<'FILES'
-docs/kubernetes-vm-deployment.md
-FILES
-run_case "datasource-password-helm" "2" "false" "true" "true" "false"
+run_case "datasource-password-helm" "2" "false" "true" "true"
 assert_file_contains "datasource-password-helm" "${tmp_dir}/datasource-password-helm/manual-approval-review.md" "PKB_DATASOURCE_PASSWORD"
 
 case_dir="${tmp_dir}/suppressed-secret-helm"
@@ -120,39 +124,12 @@ cat > "${case_dir}/helm-diff.txt" <<'DIFF'
 bio-compass, pkb-service, Secret (v1) has changed:
   Secret data suppressed
 DIFF
-cat > "${case_dir}/changed-files.txt" <<'FILES'
-docs/kubernetes-vm-deployment.md
-FILES
-run_case "suppressed-secret-helm" "2" "false" "true" "true" "false"
+run_case "suppressed-secret-helm" "2" "false" "true" "true"
 assert_file_contains "suppressed-secret-helm" "${tmp_dir}/suppressed-secret-helm/manual-approval-review.md" "Secret (v1) has changed"
 
-case_dir="${tmp_dir}/source-runtime-change"
-mkdir -p "${case_dir}"
-cat > "${case_dir}/helm-diff.txt" <<'DIFF'
-bio-compass, pkb-service, Deployment (apps) has changed:
--        image: ghcr.io/bio-compass/pkb-service:main-old
-+        image: ghcr.io/bio-compass/pkb-service:main-new
-DIFF
-cat > "${case_dir}/changed-files.txt" <<'FILES'
-src/main/java/com/biocompass/pkb/PkbServiceApplication.java
-FILES
-run_case "source-runtime-change" "2" "false" "true" "false" "true"
-
-case_dir="${tmp_dir}/no-helm-diff-runtime-change"
+case_dir="${tmp_dir}/no-helm-diff"
 mkdir -p "${case_dir}"
 touch "${case_dir}/helm-diff.txt"
-cat > "${case_dir}/changed-files.txt" <<'FILES'
-.github/workflows/ci.yml
-FILES
-run_case "no-helm-diff-runtime-change" "0" "false" "true" "false" "true"
-
-case_dir="${tmp_dir}/no-helm-diff-docs-change"
-mkdir -p "${case_dir}"
-touch "${case_dir}/helm-diff.txt"
-cat > "${case_dir}/changed-files.txt" <<'FILES'
-README.md
-docs/local-verification-testcases.md
-FILES
-run_case "no-helm-diff-docs-change" "0" "true" "false" "false" "false"
+run_case "no-helm-diff" "0" "true" "false" "false"
 
 echo "CI deploy change classifier tests passed."
