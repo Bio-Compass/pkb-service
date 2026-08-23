@@ -81,14 +81,17 @@ helm upgrade --install pkb-service oci://ghcr.io/bio-compass/charts/pkb-service 
   --namespace bio-compass \
   --values <bio-compass-helm>/values/dev/pkb-service.yaml \
   --set image.repository=ghcr.io/bio-compass/pkb-service \
-  --set image.tag=<image-tag>
+  --set image.tag=<image-tag> \
+  --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD=<temporary-file-from-GitHub-secret>
 ```
 
-The plan job writes the repository change list and Helm diff to the job log and step summary. When manual approval is required, it also writes a dedicated manual approval review with the full Helm diff, uploads that review as a workflow artifact, and attaches the run-summary URL to the `dev-manual-approval` environment. The diff is calculated with the same dev values file that the deployment jobs use. The workflow deploys automatically only when the rendered Helm diff is image-only and the push does not change service runtime or deployment-control files. If the push changes service source, resources, build files, CI deploy control, local deployment manifests, or the Helm diff includes any non-image change, the workflow waits on the `dev-manual-approval` GitHub environment before deploying.
+The workflow reads `PKB_DATASOURCE_PASSWORD` from the GitHub `dev` environment or repository secrets and passes it to Helm as `secrets.stringData.PKB_DATASOURCE_PASSWORD`. The plan job uses `helm diff --suppress-secrets`, so secret resource changes remain visible for approval classification without uploading secret values in the workflow artifact.
+
+The plan job writes the repository change list and Helm diff to the job log and step summary. When manual approval is required, it also writes a dedicated manual approval review with the full Helm diff, uploads that review as a workflow artifact, and attaches the run-summary URL to the `dev-manual-approval` environment. The diff is calculated with the same dev values file and GitHub-provided datasource password that the deployment jobs use. The workflow deploys automatically only when the rendered Helm diff is image-only and the push does not change service runtime or deployment-control files. If the push changes service source, resources, build files, CI deploy control, local deployment manifests, or the Helm diff includes any non-image change, the workflow waits on the `dev-manual-approval` GitHub environment before deploying.
 
 Configure `dev-manual-approval` with required reviewers in GitHub Environments to enforce the manual approval gate. Reviewers should open the environment URL and read the manual approval review before approving. The workflow verifies that this environment has at least one required reviewer before it allows a non-image deploy to proceed.
 
-If every deploy shows a `PKB_DATASOURCE_PASSWORD` change in the Helm diff, the change is coming from the Helm chart or dev values render rather than the PKB service image. The service workflow only overrides `image.repository` and `image.tag`; recurring datasource-password changes usually mean the chart is rendering a mutable Secret value, for example a generated password or a non-idempotent secret template. Fix that in the Helm values or chart by pinning `secrets.stringData.PKB_DATASOURCE_PASSWORD` to the intended stable value or by referencing an existing Kubernetes Secret instead of generating a new password during each render.
+If every deploy still shows a `PKB_DATASOURCE_PASSWORD` change in the Helm diff after `PKB_DATASOURCE_PASSWORD` is configured in GitHub, the chart or dev values are likely ignoring `secrets.stringData.PKB_DATASOURCE_PASSWORD` or still rendering another mutable Secret value. Fix that in the Helm chart or values by honoring this override or by referencing an existing Kubernetes Secret instead of generating a new password during each render.
 
 The deploy jobs require credentials in the GitHub `dev` environment or repository secrets:
 
@@ -96,6 +99,7 @@ The deploy jobs require credentials in the GitHub `dev` environment or repositor
 - `BIO_COMPASS_HELM_VALUES_SSH_KEY`: private SSH deploy key with read access to the private Helm values repository.
 - `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
 - `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
+- `PKB_DATASOURCE_PASSWORD`: stable PostgreSQL password for the deployed PKB datasource.
 
 The Helm chart reference can be overridden with repository variables:
 

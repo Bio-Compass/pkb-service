@@ -214,6 +214,7 @@ jobs:
           HELM_VALUES_SSH_KEY: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
           KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
         run: |
           if [ -z "${HELM_REGISTRY_TOKEN}" ]; then
             echo "BIO_COMPASS_HELM_TOKEN or GITHUB_TOKEN is required to read the Helm chart from ${REGISTRY}." >&2
@@ -227,6 +228,11 @@ jobs:
 
           if [ -z "${KUBE_CONFIG}" ] && [ -z "${KUBE_CONFIG_B64}" ]; then
             echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
+            exit 1
+          fi
+
+          if [ -z "${PKB_DATASOURCE_PASSWORD}" ]; then
+            echo "PKB_DATASOURCE_PASSWORD secret is required to pin the deployed datasource password." >&2
             exit 1
           fi
 
@@ -300,11 +306,17 @@ jobs:
 
       - name: Show Helm diff
         id: diff
+        env:
+          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
             chart_version_args=(--version "${HELM_CHART_VERSION}")
           fi
+
+          password_file="$(mktemp)"
+          trap 'rm -f "${password_file}"' EXIT
+          printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
 
           set +e
           helm diff upgrade "${SERVICE_NAME}" "${HELM_CHART}" \
@@ -313,10 +325,12 @@ jobs:
             --allow-unreleased \
             --detailed-exitcode \
             --no-color \
+            --suppress-secrets \
             --namespace "${K8S_NAMESPACE}" \
             --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
             --set-string image.tag="${IMAGE_TAG}" \
+            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}" \
             > helm-diff.txt
           diff_status=$?
           set -e
@@ -447,18 +461,25 @@ jobs:
         run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
 
       - name: Deploy service
+        env:
+          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
             chart_version_args=(--version "${HELM_CHART_VERSION}")
           fi
 
+          password_file="$(mktemp)"
+          trap 'rm -f "${password_file}"' EXIT
+          printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
+
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
             --namespace "${K8S_NAMESPACE}" \
             --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
-            --set-string image.tag="${IMAGE_TAG}"
+            --set-string image.tag="${IMAGE_TAG}" \
+            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}"
 
       - name: Wait for rollout
         run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s
@@ -564,18 +585,25 @@ jobs:
         run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
 
       - name: Deploy service
+        env:
+          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
         run: |
           chart_version_args=()
           if [ -n "${HELM_CHART_VERSION}" ]; then
             chart_version_args=(--version "${HELM_CHART_VERSION}")
           fi
 
+          password_file="$(mktemp)"
+          trap 'rm -f "${password_file}"' EXIT
+          printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
+
           helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
             "${chart_version_args[@]}" \
             --namespace "${K8S_NAMESPACE}" \
             --values "${HELM_VALUES_PATH}" \
             --set image.repository="${IMAGE_NAME}" \
-            --set-string image.tag="${IMAGE_TAG}"
+            --set-string image.tag="${IMAGE_TAG}" \
+            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}"
 
       - name: Wait for rollout
         run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s

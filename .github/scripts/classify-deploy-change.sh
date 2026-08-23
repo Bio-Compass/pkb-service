@@ -65,6 +65,10 @@ source_requires_approval=false
 
 if [ "${diff_status}" != "0" ]; then
   awk '
+    /,[[:space:]]*Secret[[:space:]]*[(][^)]*[)][[:space:]]*(has changed|has been added|has been removed):/ {
+      print
+      next
+    }
     /^(\+\+\+|---)([[:space:]]|$)/ { next }
     /^[+-]/ {
       content = substr($0, 2)
