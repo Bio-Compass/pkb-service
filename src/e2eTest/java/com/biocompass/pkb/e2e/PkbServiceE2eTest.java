@@ -2,6 +2,7 @@ package com.biocompass.pkb.e2e;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+import static org.awaitility.Awaitility.await;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 class PkbServiceE2eTest {
 
@@ -255,6 +257,52 @@ class PkbServiceE2eTest {
         assertThat(get("/api/pkb/items/not-a-uuid?userId=" + ownerUserId, ownerUserId).statusCode()).isEqualTo(400);
     }
 
+    @Test
+    void acceptsKafkaWriteCommandAndAppliesItOnlyOnceWhenRetried() throws Exception {
+        var commandId = UUID.randomUUID();
+        var sourceId = "e2e-kafka-command-" + commandId;
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "entityType", "observation",
+                "subtype", "note",
+                "status", "active",
+                "payload", Map.of("text", "Kafka command ingress"),
+                "sourceType", "e2e",
+                "sourceId", sourceId,
+                "provenance", Map.of("sourceKind", "e2e")
+        ));
+
+        var accepted = postWithBearer(
+                "/api/pkb/commands/items?userId=" + ownerUserId,
+                tokenFor(ownerUserId, false),
+                commandId,
+                payload
+        );
+
+        assertThat(accepted.statusCode()).isEqualTo(HttpStatus.ACCEPTED.value());
+        assertThat(accepted.jsonObject())
+                .containsEntry("commandId", commandId.toString())
+                .containsEntry("status", "accepted");
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            assertThat(itemCount(ownerUserId, sourceId)).isEqualTo(1);
+            assertThat(processedCommandCount(commandId)).isEqualTo(1);
+        });
+        int initialDeliveryCount = processedCommandDeliveryCount(commandId);
+        assertThat(initialDeliveryCount).isPositive();
+
+        var retried = postWithBearer(
+                "/api/pkb/commands/items?userId=" + ownerUserId,
+                tokenFor(ownerUserId, false),
+                commandId,
+                payload
+        );
+
+        assertThat(retried.statusCode()).isEqualTo(HttpStatus.ACCEPTED.value());
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(processedCommandDeliveryCount(commandId)).isGreaterThan(initialDeliveryCount));
+        assertThat(itemCount(ownerUserId, sourceId)).isEqualTo(1);
+        assertThat(processedCommandCount(commandId)).isEqualTo(1);
+    }
+
     private static void waitForHealthyService() throws InterruptedException {
         Exception lastException = null;
         for (int attempt = 0; attempt < 30; attempt++) {
@@ -310,6 +358,23 @@ class PkbServiceE2eTest {
         }
 
         var response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        return new HttpResult(response.statusCode(), response.body());
+    }
+
+    private static HttpResult postWithBearer(
+            String path,
+            String bearerToken,
+            UUID commandId,
+            String payload
+    ) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + bearerToken)
+                .header("X-Command-Id", commandId.toString())
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload))
+                .build();
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         return new HttpResult(response.statusCode(), response.body());
     }
 
@@ -451,6 +516,52 @@ class PkbServiceE2eTest {
             statement.setObject(16, item.createdAt());
             statement.setObject(17, item.updatedAt());
             statement.executeUpdate();
+        }
+    }
+
+    private static int itemCount(UUID userId, String sourceId) throws SQLException {
+        try (var connection = connection();
+             var statement = connection.prepareStatement("""
+                     SELECT count(*)
+                     FROM pkb_item
+                     WHERE user_id = ?
+                       AND source_id = ?
+                     """)) {
+            statement.setObject(1, userId);
+            statement.setString(2, sourceId);
+            try (var resultSet = statement.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
+        }
+    }
+
+    private static int processedCommandCount(UUID commandId) throws SQLException {
+        try (var connection = connection();
+             var statement = connection.prepareStatement("""
+                     SELECT count(*)
+                     FROM pkb_processed_command
+                     WHERE command_id = ?
+                     """)) {
+            statement.setObject(1, commandId);
+            try (var resultSet = statement.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
+        }
+    }
+
+    private static int processedCommandDeliveryCount(UUID commandId) throws SQLException {
+        try (var connection = connection();
+             var statement = connection.prepareStatement("""
+                     SELECT delivery_count
+                     FROM pkb_processed_command
+                     WHERE command_id = ?
+                     """)) {
+            statement.setObject(1, commandId);
+            try (var resultSet = statement.executeQuery()) {
+                return resultSet.next() ? resultSet.getInt(1) : 0;
+            }
         }
     }
 

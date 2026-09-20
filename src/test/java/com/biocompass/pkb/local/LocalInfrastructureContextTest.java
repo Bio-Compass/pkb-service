@@ -74,7 +74,7 @@ class LocalInfrastructureContextTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
         registry.add("biocompass.pkb.opa.base-url", () -> "http://localhost:8181");
-        registry.add("biocompass.pkb.opa.decision-path", () -> "/v1/data/biocompass/pkb/authz/allow");
+        registry.add("biocompass.pkb.opa.decision-path", () -> "/v1/data/biocompass/pkb/authz/decision");
         registry.add("biocompass.pkb.storage.endpoint", LocalInfrastructureContextTest::minioEndpoint);
         registry.add("biocompass.pkb.storage.region", () -> "eu-central-1");
         registry.add("biocompass.pkb.storage.bucket", () -> "pkb-local");
@@ -91,7 +91,7 @@ class LocalInfrastructureContextTest {
 
         assertThat(localInfrastructureProperties.opa().baseUrl()).isEqualTo(URI.create("http://localhost:8181"));
         assertThat(localInfrastructureProperties.opa().decisionPath())
-                .isEqualTo("/v1/data/biocompass/pkb/authz/allow");
+                .isEqualTo("/v1/data/biocompass/pkb/authz/decision");
         assertThat(localInfrastructureProperties.storage().endpoint()).isEqualTo(URI.create(minioEndpoint()));
         assertThat(localInfrastructureProperties.storage().bucket()).isEqualTo("pkb-local");
         assertThat(localInfrastructureProperties.storage().pathStyleAccessEnabled()).isTrue();

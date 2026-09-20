@@ -1,6 +1,7 @@
 package com.biocompass.pkb.command.dto;
 
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
@@ -19,6 +20,7 @@ public record SupersedePkbItemCommand(
 ) implements PkbCommand<PkbItemEntity> {
 
     @AssertTrue(message = "replacementItem.userId must match userId")
+    @JsonIgnore
     public boolean isReplacementUserIdValid() {
         return userId == null
                 || replacementItem == null
@@ -27,6 +29,7 @@ public record SupersedePkbItemCommand(
     }
 
     @AssertTrue(message = "replacementItem.supersedes must match supersededItemId")
+    @JsonIgnore
     public boolean isReplacementSupersedesValid() {
         return supersededItemId == null
                 || replacementItem == null

@@ -16,10 +16,13 @@ import java.util.UUID;
 public interface BioCompassActorMapper {
 
     @Mapping(target = "userId", source = "principal", qualifiedByName = "userId")
+    @Mapping(target = "actorId", source = "principal", qualifiedByName = "actorId")
     @Mapping(target = "email", source = "principal", qualifiedByName = "email")
     @Mapping(target = "emailVerified", source = "principal", qualifiedByName = "emailVerified")
     @Mapping(target = "staff", source = "principal", qualifiedByName = "staff")
     @Mapping(target = "roles", source = "principal", qualifiedByName = "roles")
+    @Mapping(target = "scopes", source = "principal", qualifiedByName = "scopes")
+    @Mapping(target = "purposeOfUse", source = "principal", qualifiedByName = "purposeOfUse")
     BioCompassActor toActor(OAuth2AuthenticatedPrincipal principal);
 
     @Named("userId")
@@ -30,6 +33,11 @@ public interface BioCompassActorMapper {
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException("BioCompass introspection response does not contain a UUID user_id.", exception);
         }
+    }
+
+    @Named("actorId")
+    default String actorId(OAuth2AuthenticatedPrincipal principal) {
+        return stringAttribute(principal, "actor_id", userId(principal).toString());
     }
 
     @Named("email")
@@ -51,6 +59,16 @@ public interface BioCompassActorMapper {
     default Set<String> roles(OAuth2AuthenticatedPrincipal principal) {
         var defaultRoles = staff(principal) ? List.of("staff") : List.of("user");
         return values(principal.getAttribute("roles"), defaultRoles);
+    }
+
+    @Named("scopes")
+    default Set<String> scopes(OAuth2AuthenticatedPrincipal principal) {
+        return values(principal.getAttribute("scopes"), List.of());
+    }
+
+    @Named("purposeOfUse")
+    default String purposeOfUse(OAuth2AuthenticatedPrincipal principal) {
+        return stringAttribute(principal, "purpose_of_use", "self");
     }
 
     private static String stringAttribute(

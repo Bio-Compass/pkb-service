@@ -56,6 +56,7 @@ dependencies {
     implementation 'org.flywaydb:flyway-database-postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
     testImplementation 'org.testcontainers:kafka:1.21.4'
     testImplementation 'org.testcontainers:postgresql:1.21.4'
@@ -66,6 +67,45 @@ dependencies {
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
+
+def registerFocusedTest = { String taskName, String taskDescription, List<String> testPatterns ->
+    tasks.register(taskName, Test) {
+        description = taskDescription
+        group = 'verification'
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        filter {
+            testPatterns.each { includeTestsMatching it }
+        }
+    }
+}
+
+registerFocusedTest('commandTest', 'Runs PKB command domain and persistence tests.', [
+        'com.biocompass.pkb.command.*',
+        'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest'
+])
+
+registerFocusedTest('commandApiTest', 'Runs PKB command HTTP API tests.', [
+        'com.biocompass.pkb.command.api.*'
+])
+
+registerFocusedTest('kafkaIngressTest', 'Runs PKB Kafka command ingress tests.', [
+        'com.biocompass.pkb.kafka.*',
+        'com.biocompass.pkb.persistence.PkbKafkaCommandProcessorIntegrationTest',
+        'com.biocompass.pkb.persistence.PkbKafkaFailureHandlingIntegrationTest'
+])
+
+registerFocusedTest('persistenceTest', 'Runs PKB persistence integration tests.', [
+        'com.biocompass.pkb.persistence.*'
+])
+
+registerFocusedTest('artifactStorageTest', 'Runs PKB artifact storage tests.', [
+        'com.biocompass.pkb.artifact.*',
+        'com.biocompass.pkb.command.*',
+        'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest',
+        'com.biocompass.pkb.persistence.PkbPersistenceDaoIntegrationTest',
+        'com.biocompass.pkb.persistence.PkbSchemaMigrationTest'
+])
 
 tasks.register('e2eTest', Test) {
     description = 'Runs end-to-end tests against a locally running PKB service.'
@@ -83,6 +123,12 @@ tasks.register('testCiScripts', Exec) {
 
 tasks.named('test') {
     dependsOn tasks.named('testCiScripts')
+}
+
+tasks.register('fullVerification') {
+    description = 'Runs all automated and end-to-end verification.'
+    group = 'verification'
+    dependsOn tasks.named('test'), tasks.named('e2eTest')
 }
 
 static String sanitizeImageTagPart(String value) {

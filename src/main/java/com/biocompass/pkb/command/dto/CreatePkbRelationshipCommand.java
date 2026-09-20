@@ -1,6 +1,7 @@
 package com.biocompass.pkb.command.dto;
 
 import com.biocompass.pkb.persistence.entity.PkbRelationshipEntity;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -20,6 +21,7 @@ public record CreatePkbRelationshipCommand(
 ) implements PkbCommand<PkbRelationshipEntity> {
 
     @AssertTrue(message = "relationship endpoints must be different")
+    @JsonIgnore
     public boolean isRelationshipEndpointsValid() {
         return fromItemId == null || !fromItemId.equals(toItemId);
     }

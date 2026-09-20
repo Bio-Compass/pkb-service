@@ -6,6 +6,8 @@ Architecture of this service is described in [docs/biocompass_pkb_architecture.m
 
 The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb_implementation_plan.md).
 
+Read only the documentation relevant to the current change. Use the architecture document for cross-cutting design, the implementation plan for issue scope, and [docs/local-verification-testcases.md](docs/local-verification-testcases.md) when selecting or recording verification.
+
 ## Implementation Workflow
 
 - Implement each GitHub issue on its own separate branch.
@@ -32,7 +34,7 @@ The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb
 - Every implementation step should be runnable or testable locally.
 - Run the relevant Gradle tests for the step before finalizing.
 - When a service change affects startup or HTTP behavior, run the service locally and verify the relevant endpoint.
-- After each code change, consult and update [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as needed.
+- Before finalizing a behavior change, consult and update [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as needed.
 - Track new or changed service behavior as testcases before finalizing the change.
 
 ## Testing
