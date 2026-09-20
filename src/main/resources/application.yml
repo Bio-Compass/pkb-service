@@ -1,6 +1,46 @@
 spring:
   application:
     name: pkb-service
+  kafka:
+    template:
+      default-topic: ${PKB_KAFKA_COMMAND_INGRESS_TOPIC:pkb.commands.ingress.v1}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: ${PKB_KAFKA_DELIVERY_TIMEOUT_MS:10000}
+        request.timeout.ms: ${PKB_KAFKA_REQUEST_TIMEOUT_MS:5000}
+        max.block.ms: ${PKB_KAFKA_MAX_BLOCK_MS:10000}
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: ${PKB_KAFKA_COMMAND_CONSUMER_GROUP_ID:pkb-command-writer}
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.biocompass.pkb.kafka.PkbKafkaCommandMessage
+    listener:
+      ack-mode: record
+
+biocompass:
+  pkb:
+    authorization:
+      service-name: ${PKB_AU_SERVICE_NAME:pkb-service}
+      service-token: ${PKB_AU_SERVICE_TOKEN:}
+      timeout: ${PKB_AU_TIMEOUT:5s}
+    kafka:
+      producer-service: ${PKB_KAFKA_PRODUCER_SERVICE:pkb-service}
+      dead-letter-topic: ${PKB_KAFKA_COMMAND_DLT_TOPIC:pkb.commands.ingress.dlt.v1}
+      replay-topic: ${PKB_KAFKA_COMMAND_REPLAY_TOPIC:pkb.commands.ingress.replay.v1}
+      retry:
+        max-retries: ${PKB_KAFKA_COMMAND_MAX_RETRIES:3}
+        initial-interval: ${PKB_KAFKA_COMMAND_RETRY_INITIAL_INTERVAL:250ms}
+        multiplier: ${PKB_KAFKA_COMMAND_RETRY_MULTIPLIER:2.0}
+        max-interval: ${PKB_KAFKA_COMMAND_RETRY_MAX_INTERVAL:5s}
 
 management:
   endpoint:

@@ -69,14 +69,14 @@ Verify OPA:
 curl -fsS http://localhost:8181/health
 ```
 
-Evaluate the development policy (the owner can read an item in the `normal` privacy scope):
+Evaluate the development write decision contract:
 
 ```sh
 curl -fsS \
   -X POST \
   -H 'Content-Type: application/json' \
-  --data '{"input":{"actor":{"user_id":"user-1","roles":["user"],"scopes":[]},"action":"read","purpose":"self","resource":{"owner_user_id":"user-1","privacy_scope":"normal"}}}' \
-  http://localhost:8181/v1/data/biocompass/pkb/authz/allow
+  --data '{"input":{"command_id":"11111111-1111-1111-1111-111111111111","producer_service":"pkb-service","actor":{"actor_id":"22222222-2222-2222-2222-222222222222","user_id":"22222222-2222-2222-2222-222222222222","roles":["user"],"scopes":[],"purpose_of_use":"self"},"action":"write","resource":{"target_user_id":"22222222-2222-2222-2222-222222222222","command_type":"CreatePkbItemCommand","source_type":"manual","consent_scope":[],"privacy_scope":[],"identifiers":{}}}}' \
+  http://localhost:8181/v1/data/biocompass/pkb/authz/decision
 ```
 
 ## Run The Service Locally
@@ -125,6 +125,50 @@ curl -fsS \
   "http://localhost:8080/api/pkb/items?userId=${USER_ID}"
 ```
 
+## Submit A PKB Write Command
+
+PKB write endpoints acknowledge a command after Kafka accepts it, then the local
+consumer applies the canonical PostgreSQL write. Supply a new UUID in
+`X-Command-Id`; reuse it only when retrying the same request.
+
+```sh
+COMMAND_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "X-Command-Id: ${COMMAND_ID}" \
+  -H "Content-Type: application/json" \
+  "http://localhost:8080/api/pkb/commands/items?userId=${USER_ID}" \
+  --data '{
+    "entityType":"observation",
+    "subtype":"note",
+    "status":"active",
+    "payload":{"text":"Drink water"},
+    "sourceType":"manual",
+    "provenance":{"sourceKind":"manual"}
+  }'
+```
+
+The response is `202 Accepted`. The request is not a completed PKB write at
+that point; wait for the consumer before reading the new item. The response is
+sent only after the HTTP-time AU decision succeeds and Kafka acknowledges the
+record. The consumer obtains a fresh AU decision before its PostgreSQL
+transaction commits.
+
+Reusing the same command ID is safe only for the exact same user, command type,
+and canonical payload. An exact redelivery increments the inbox delivery count
+without invoking the command handler again. A mismatched reuse is retained on
+the dead-letter topic.
+
+The local profile uses these command topics:
+
+- `pkb.commands.ingress.v1`
+- `pkb.commands.ingress.dlt.v1`
+- `pkb.commands.ingress.replay.v1`
+
+See [Kafka Command Ingress](kafka-command-ingress.md) for authorization context,
+retry classification, manual replay, topic provisioning, and ACL ownership.
+
 ## Run Tests
 
 Run the full test suite:
@@ -133,7 +177,11 @@ Run the full test suite:
 ./gradlew test --no-daemon
 ```
 
-The local infrastructure tests use Testcontainers to start PostgreSQL, Kafka, MinIO, and OPA automatically. They do not require the Compose stack to be running.
+The local infrastructure tests use Testcontainers to start PostgreSQL, Kafka,
+MinIO, and OPA automatically. The Kafka failure tests boot the production
+listener and error handler against real Kafka and PostgreSQL and cover transient
+AU/database recovery, exhaustion, malformed JSON, DLT retention, idempotency,
+and replay. They do not require the Compose stack to be running.
 
 Use [Local Verification Testcases](local-verification-testcases.md) as the checklist for local service verification after code changes.
 

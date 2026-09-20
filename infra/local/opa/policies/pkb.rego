@@ -4,6 +4,14 @@ import rego.v1
 
 default allow := false
 
+decision := {
+    "allowed": allow,
+    "decision_reference": sprintf("local-opa:%s", [input.command_id]),
+    "action": input.action,
+    "target_user_id": input.resource.target_user_id,
+    "obligations": {},
+}
+
 allowed_purposes := {"care", "self", "operations", "development"}
 allowed_owner_actions := {"read", "write", "search"}
 cross_user_read_actions := {"read", "search"}
@@ -22,6 +30,12 @@ allow if {
     input.action in allowed_owner_actions
     input.purpose in allowed_purposes
     not restricted_resource
+}
+
+allow if {
+    input.actor.user_id == input.resource.target_user_id
+    input.action == "write"
+    input.actor.purpose_of_use in allowed_purposes
 }
 
 redactions contains "payload" if {
