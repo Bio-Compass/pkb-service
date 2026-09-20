@@ -48,8 +48,6 @@ public class BioCompassAuClient implements PkbAuthorizationGateway {
                 throw new PkbAuthorizationInvalidDecisionException("BioCompass AU returned no decision");
             }
             return response.result();
-        } catch (PkbAuthorizationInvalidDecisionException exception) {
-            throw exception;
         } catch (RestClientResponseException exception) {
             if (isPermanentClientFailure(exception.getStatusCode().value())) {
                 throw new PkbAuthorizationInvalidDecisionException(
