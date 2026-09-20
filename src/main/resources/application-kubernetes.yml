@@ -13,6 +13,10 @@ spring:
 
 biocompass:
   pkb:
+    authorization:
+      decision-url: ${PKB_AU_DECISION_URL:}
+      service-name: ${PKB_AU_SERVICE_NAME:pkb-service}
+      service-token: ${PKB_AU_SERVICE_TOKEN:}
     auth:
       default-purpose: ${PKB_AUTH_DEFAULT_PURPOSE:self}
       introspection:
@@ -27,6 +31,8 @@ biocompass:
       access-key: ${PKB_S3_ACCESS_KEY:${PKB_MINIO_ROOT_USER:}}
       secret-key: ${PKB_S3_SECRET_KEY:${PKB_MINIO_ROOT_PASSWORD:}}
       path-style-access-enabled: ${PKB_S3_PATH_STYLE_ACCESS_ENABLED:true}
+    kafka:
+      command-ingress-enabled: ${PKB_KAFKA_COMMAND_INGRESS_ENABLED:false}
 
 logging:
   level:

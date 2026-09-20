@@ -4,7 +4,7 @@
 
 Implement the BioCompass Personal Knowledge Base (PKB) as a Java 25, Spring Boot 4.0.x, Gradle-based modular monolith.
 
-The service will use PostgreSQL as the canonical store, Flyway for schema migrations, HAPI FHIR as an interoperability facade, BioCompass auth service token introspection with service-local authorization policies, Kafka for asynchronous enrichment events, and S3-compatible object storage for binary artifacts.
+The service will use PostgreSQL as the canonical store, Flyway for schema migrations, HAPI FHIR as an interoperability facade, BioCompass auth service token introspection, authorization decisions from the BioCompass AU Service, Kafka for asynchronous enrichment events, and S3-compatible object storage for binary artifacts.
 
 The first implementation is one deployable service with clear internal module boundaries. The architecture should remain split-ready, but the initial codebase should avoid premature microservice deployment complexity.
 
@@ -18,7 +18,7 @@ The first implementation is one deployable service with clear internal module bo
 - Search: PostgreSQL full-text search first, pgvector foundation for semantic search
 - FHIR: HAPI FHIR Plain Server facade
 - Security: Spring Security OAuth2 resource server using BioCompass auth token introspection
-- Policy: service-local authorization policies driven by BioCompass auth claims
+- Policy: PKB is a policy-enforcement point; the BioCompass AU Service is the policy-decision point for read and write authorization
 - Async: Kafka
 - Object storage: AWS S3 / MinIO-compatible API
 - Local infrastructure: Docker Compose for PostgreSQL, Kafka, and MinIO
@@ -145,6 +145,8 @@ Tasks:
 - Persist PKB items and provenance in one transaction.
 - Support supersession metadata.
 - Support relationship creation between PKB items.
+- Keep the command boundary transport-neutral so native REST, the FHIR facade, and authorized asynchronous consumers invoke the same write behavior.
+- Require a verified authorization decision from the BioCompass AU Service before an adapter invokes a write command. For asynchronous input, PKB itself verifies the decision immediately before persistence; it does not trust a producer or upstream worker to have checked authorization. Command handlers must not implement role, consent, or purpose-of-use rules.
 - Publish domain events only after successful writes.
 
 Acceptance criteria:
@@ -153,6 +155,7 @@ Acceptance criteria:
 - Provenance is persisted with item writes.
 - Supersession fields can be set and queried later.
 - Relationships can be created between valid PKB items.
+- Every write path uses a verified AU decision and does not duplicate AU authorization rules in PKB.
 - Failed writes do not publish events.
 
 Local verification:
@@ -172,7 +175,7 @@ Tasks:
 - Support filters for user, entity type, subtype, status, time validity, privacy scope, and text query.
 - Add PostgreSQL full-text search over appropriate item fields.
 - Add a repository boundary that can later support pgvector and Elasticsearch projections.
-- Enforce policy decisions before returning protected data.
+- Enforce BioCompass AU Service decisions before returning protected data.
 
 Acceptance criteria:
 
@@ -187,9 +190,9 @@ Local verification:
 - Run query module unit and integration tests locally.
 - Seed local PKB items and verify ID lookup, filters, and text search.
 
-### 7. Integrate BioCompass Auth And Query Policy Enforcement
+### 7. Integrate BioCompass Auth And AU Decision Enforcement
 
-Integrate BioCompass identity and PKB query authorization.
+Integrate BioCompass identity and make PKB a thin policy-enforcement point for BioCompass AU Service decisions.
 
 Tasks:
 
@@ -197,22 +200,26 @@ Tasks:
 - Introspect incoming bearer tokens through the BioCompass auth service internal token introspection endpoint.
 - Map active introspection responses into an internal actor model.
 - Include actor ID, user ID, email, email verification status, staff status, roles, scopes, tenant or context if present, and purpose of use.
-- Enforce owner-scoped query authorization using the authenticated BioCompass actor.
-- Permit staff or explicitly privileged actors to read across user scopes.
-- Provide local development defaults for auth-service token introspection without implementing a standalone auth server.
+- Add a BioCompass AU Service client for read and write decisions.
+- Send the AU Service the actor identity, requested action, target user, resource identifiers and attributes needed for a decision, source type, and purpose of use.
+- Apply AU allow or deny results and any returned obligations before query or command execution; bind the approved action and target user to the request so callers cannot substitute them.
+- Keep role, consent, privacy, staff, and source-specific authorization rules in the AU Service rather than duplicating them in PKB.
+- Record the AU decision reference with the command audit trail or emitted event once the audit model is introduced.
+- Provide local development defaults and contract-test doubles for both auth-token introspection and AU decision calls, without implementing a standalone auth or authorization server.
 
 Acceptance criteria:
 
 - The service validates BioCompass bearer tokens through auth-service introspection.
 - Introspection results are mapped into the internal actor model.
-- Query decisions gate protected PKB item read/search operations.
-- Denied requests do not expose protected PKB data.
-- Authorization behavior is covered by tests for unauthenticated, same-user, cross-user denied, and staff cross-user allowed outcomes.
+- AU decisions gate protected PKB item read/search operations and all write commands.
+- Denied reads do not expose protected data, and denied writes make no persistent change.
+- PKB does not contain duplicated role, consent, privacy, or purpose-of-use authorization rules.
+- Authorization behavior is covered by tests for unauthenticated, allowed, denied, AU obligations, and target-user substitution outcomes.
 
 Local verification:
 
-- Run authorization unit tests locally.
-- Verify allowed and denied REST calls with configured BioCompass auth credentials.
+- Run authorization-client and policy-enforcement tests locally.
+- Verify allowed and denied REST calls with configured BioCompass auth and AU Service credentials or local contract-test doubles.
 
 ### 8. Implement Artifact Storage Integration
 
@@ -256,6 +263,11 @@ Tasks:
 - Configure Kafka producer and consumer infrastructure.
 - Publish events after committed item and artifact writes.
 - Use transactionally safe event publishing, such as an outbox-style pattern or equivalent.
+- Treat Kafka as an internal transport, not as an authorization system.
+- Use a separate Kafka write-command ingress from PKB domain-event topics, and allow only provisioned service identities to produce to that ingress.
+- At the PKB Kafka ingress, independently authenticate the producer service identity and call the AU Service with current command and resource attributes immediately before a write. Reject the command and make no persistent change when AU denies the action, the decision is missing or invalid, or AU is unavailable.
+- Treat any decision reference carried by a message as audit context only until PKB has independently verified it; never trust a producer or upstream consumer to have checked authorization.
+- Do not place raw end-user bearer tokens in Kafka events.
 - Add initial event types:
   - `pkb.item.created`
   - `pkb.artifact.created`
@@ -268,6 +280,7 @@ Acceptance criteria:
 
 - Item and artifact writes can emit Kafka events.
 - Consumers are idempotent.
+- PKB Kafka ingress cannot make a protected write solely because it received a message; it independently enforces a fresh AU decision and fails closed when that decision cannot be obtained.
 - Event payloads include event ID, event type, occurred-at timestamp, user ID, PKB item or artifact ID, and correlation or workflow ID.
 - Event behavior is covered by tests.
 
@@ -298,14 +311,14 @@ Tasks:
   - `Provenance`
   - `Consent`
 - Route FHIR reads and writes through canonical command/query modules where supported.
-- Enforce BioCompass auth and the PKB policy model for FHIR operations.
+- Enforce BioCompass auth and BioCompass AU Service decisions for FHIR operations.
 
 Acceptance criteria:
 
 - FHIR endpoints are available through HAPI FHIR.
 - FHIR resources map to and from canonical PKB records.
 - PostgreSQL canonical tables remain the source of truth.
-- FHIR operations enforce the same policy model as native REST APIs.
+- FHIR operations enforce the same AU decision-enforcement path as native REST APIs.
 
 Local verification:
 
@@ -343,6 +356,8 @@ Local verification:
 
 Native REST APIs are the primary BioCompass product APIs for PKB operations.
 
+All write transports — native REST, supported FHIR writes, and authorized asynchronous consumers — use the same canonical command pipeline. External systems do not write directly to PostgreSQL.
+
 Initial REST capabilities:
 
 - Create PKB item.
@@ -359,7 +374,7 @@ Initial FHIR capabilities:
 - Accept supported FHIR writes only when they can be normalized into canonical PKB commands.
 - Apply the same auth and policy checks used by native REST.
 
-Kafka events are internal integration contracts.
+Kafka events are internal integration contracts, not proof that a producer is authorized to write protected PKB data. PKB independently verifies authorization at its Kafka write-command ingress.
 
 Initial event fields:
 
@@ -369,6 +384,8 @@ Initial event fields:
 - User ID
 - PKB item ID or artifact ID
 - Correlation or workflow ID
+- Originating actor or service identity where applicable
+- AU decision reference for audit correlation only; PKB independently verifies authorization before a protected write
 
 ## Testing Strategy
 
@@ -379,7 +396,7 @@ Use layered testing:
 - Unit tests for isolated domain logic and mappers.
 - Repository tests for Flyway and PostgreSQL behavior.
 - API tests for REST and FHIR behavior.
-- Policy tests for allow and deny decisions.
+- Authorization-client and policy-enforcement tests for allow, deny, obligations, and target-user binding.
 - Storage tests for S3/MinIO object references.
 - Kafka tests for event publishing and idempotent consumption.
 
@@ -396,7 +413,7 @@ The minimum acceptance scenario for the first implementation is:
 Assumptions:
 
 - This repository owns the PKB service implementation.
-- BioCompass auth exists separately; this service validates bearer tokens through its internal introspection endpoint.
+- BioCompass auth and AU Service exist separately; PKB validates bearer tokens through auth-service introspection and obtains authorization decisions from the AU Service.
 - The initial deployment shape is a modular monolith.
 - PostgreSQL is the canonical source of truth.
 - HAPI FHIR is a facade, not the primary persistence layer.
@@ -408,4 +425,4 @@ Deferred work:
 - Graph database projection.
 - Production OCR, extraction, summarization, embedding, and terminology engines.
 - Advanced multilingual search ranking.
-- Full production policy authoring workflow.
+- Full production policy authoring workflow in the BioCompass AU Service.

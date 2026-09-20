@@ -246,3 +246,28 @@ Important constraints and indexes:
 - Embeddings are cascade-deleted with their source item.
 - The HNSW cosine index supports approximate nearest-neighbor vector lookup.
 - The user index supports user-scoped semantic search.
+
+## `pkb_processed_command`
+
+Transactional Kafka inbox and command-audit record. Its insert and the
+canonical PKB write commit in the same PostgreSQL transaction.
+
+| Field | Responsibility |
+| --- | --- |
+| `command_id` | Immutable idempotency key supplied as `X-Command-Id`. |
+| `command_type` | Concrete canonical command type. |
+| `user_id` | Target user whose PKB was changed. |
+| `payload_hash` | SHA-256 of canonical command JSON. |
+| `producer_service` | Broker-authenticated producer identity recorded by the trusted HTTP adapter. |
+| `actor_id` / `actor_user_id` | Safe authenticated actor identifiers; no bearer token is stored. |
+| `purpose_of_use` | Purpose sent to AU for the write decision. |
+| `prior_decision_reference` | HTTP-time AU decision reference carried for correlation only. |
+| `applied_decision_reference` | Fresh consumer-time AU decision that authorized persistence. |
+| `correlation_id` | Calling workflow/request correlation identifier. |
+| `processed_at` | First successful processing time. |
+| `last_received_at` | Most recent exact delivery time. |
+| `delivery_count` | Number of exact deliveries observed. |
+
+Only a command with the same ID, type, target user, and canonical hash is an
+idempotent retry. Mismatched reuse is a permanent command failure and is routed
+to the Kafka DLT rather than being silently suppressed.
