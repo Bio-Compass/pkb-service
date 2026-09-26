@@ -18,15 +18,21 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -66,6 +72,9 @@ class LocalInfrastructureContextTest {
 
     @Autowired
     private LocalInfrastructureProperties localInfrastructureProperties;
+
+    @Autowired
+    private S3Client s3Client;
 
     @DynamicPropertySource
     static void localInfrastructureProperties(DynamicPropertyRegistry registry) {
@@ -114,6 +123,25 @@ class LocalInfrastructureContextTest {
         }
 
         assertThat(get(minioEndpoint() + "/minio/health/ready").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void s3ClientCanCreateBucketAndObjectAgainstMinio() {
+        var bucket = "pkb-local-%s".formatted(UUID.randomUUID());
+        var userId = UUID.randomUUID();
+        var documentId = UUID.randomUUID();
+        var key = "users/%s/documents/%s/original".formatted(userId, documentId);
+        var content = "PKB artifact content";
+
+        s3Client.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
+        s3Client.putObject(
+                PutObjectRequest.builder().bucket(bucket).key(key).contentType("text/plain").build(),
+                RequestBody.fromString(content));
+
+        var head = s3Client.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build());
+
+        assertThat(head.contentLength()).isEqualTo(content.getBytes(StandardCharsets.UTF_8).length);
+        assertThat(head.contentType()).isEqualTo("text/plain");
     }
 
     private static String minioEndpoint() {
