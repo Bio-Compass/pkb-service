@@ -82,3 +82,4 @@ Add concrete local service testcases here as features land:
 - Item create/update/delete HTTP flows.
 - Artifact object upload/download HTTP flows after metadata registration.
 - FHIR mapping and resource retrieval behavior.
+- PKB item `observed_timezone` acceptance and rejection: a command with `observed_at` and a valid IANA identifier is accepted and returned, an invalid identifier or a bare offset is rejected, and `observed_timezone` without `observed_at` is rejected.

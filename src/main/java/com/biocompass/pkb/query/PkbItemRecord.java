@@ -15,6 +15,7 @@ public record PkbItemRecord(
         String sourceType,
         String sourceId,
         OffsetDateTime observedAt,
+        String observedTimezone,
         OffsetDateTime ingestedAt,
         OffsetDateTime validFrom,
         OffsetDateTime validUntil,

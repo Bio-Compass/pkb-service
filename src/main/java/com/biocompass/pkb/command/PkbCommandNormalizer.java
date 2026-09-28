@@ -31,6 +31,7 @@ public class PkbCommandNormalizer {
                 .sourceType(normalizeCanonicalCode(command.sourceType()))
                 .sourceId(normalizeFreeText(command.sourceId()))
                 .observedAt(command.observedAt())
+                .observedTimezone(normalizeFreeText(command.observedTimezone()))
                 .validFrom(command.validFrom())
                 .validUntil(command.validUntil())
                 .language(normalizeCanonicalCode(command.language()))
