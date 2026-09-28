@@ -40,6 +40,7 @@ class PkbCommandValidatorTest {
                 " ",
                 null,
                 null,
+                null,
                 Instant.parse("2026-06-21T00:00:00Z"),
                 Instant.parse("2026-06-20T00:00:00Z"),
                 null,
@@ -62,6 +63,113 @@ class PkbCommandValidatorTest {
                         "validity validUntil must not be before validFrom",
                         "provenance.sourceKind is required"
                 );
+    }
+
+    @Test
+    void acceptsValidIanaObservedTimezone() {
+        var command = new CreatePkbItemCommand(
+                UUID.randomUUID(),
+                "observation",
+                "note",
+                "active",
+                new LinkedHashMap<>(Map.of("text", "headache")),
+                "manual",
+                null,
+                Instant.parse("2026-06-20T08:15:00Z"),
+                "Europe/Amsterdam",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("manual", "user", null, null, null),
+                null
+        );
+
+        assertThat(validator.validate(command)).isEmpty();
+    }
+
+    @Test
+    void rejectsInvalidObservedTimezone() {
+        var invalidTimezoneCommand = new CreatePkbItemCommand(
+                UUID.randomUUID(),
+                "observation",
+                "note",
+                "active",
+                new LinkedHashMap<>(Map.of("text", "headache")),
+                "manual",
+                null,
+                Instant.parse("2026-06-20T08:15:00Z"),
+                "Not/A/Real/Zone",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("manual", "user", null, null, null),
+                null
+        );
+
+        assertThat(validationMessages(invalidTimezoneCommand))
+                .contains("observedTimezone must be a valid IANA time-zone identifier");
+    }
+
+    @Test
+    void rejectsOffsetAsObservedTimezone() {
+        var command = new CreatePkbItemCommand(
+                UUID.randomUUID(),
+                "observation",
+                "note",
+                "active",
+                new LinkedHashMap<>(Map.of("text", "headache")),
+                "manual",
+                null,
+                Instant.parse("2026-06-20T08:15:00Z"),
+                "+02:00",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("manual", "user", null, null, null),
+                null
+        );
+
+        assertThat(validationMessages(command))
+                .contains("observedTimezone must be a valid IANA time-zone identifier");
+    }
+
+    @Test
+    void rejectsObservedTimezoneWithoutObservedAt() {
+        var command = new CreatePkbItemCommand(
+                UUID.randomUUID(),
+                "observation",
+                "note",
+                "active",
+                new LinkedHashMap<>(Map.of("text", "headache")),
+                "manual",
+                null,
+                null,
+                "Europe/Amsterdam",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("manual", "user", null, null, null),
+                null
+        );
+
+        assertThat(validationMessages(command))
+                .contains("observedTimezone requires observedAt");
     }
 
     @Test
@@ -146,6 +254,7 @@ class PkbCommandValidatorTest {
                 new LinkedHashMap<>(Map.of("text", "headache")),
                 "manual",
                 "manual-note-1",
+                null,
                 null,
                 null,
                 null,

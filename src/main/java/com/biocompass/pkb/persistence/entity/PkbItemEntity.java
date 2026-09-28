@@ -59,6 +59,9 @@ public class PkbItemEntity {
     @Column(name = "observed_at")
     private Instant observedAt;
 
+    @Column(name = "observed_timezone")
+    private String observedTimezone;
+
     @Column(name = "ingested_at", nullable = false)
     private Instant ingestedAt;
 
