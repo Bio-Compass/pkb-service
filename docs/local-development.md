@@ -7,6 +7,11 @@ This setup starts the infrastructure needed by the PKB service in local developm
 - MinIO for S3-compatible object storage
 - Open Policy Agent (OPA) with a development policy
 
+Compose and Testcontainers use `pgsty/minio:RELEASE.2026-08-04T00-00-00Z`, a
+community-maintained MinIO fork available on Docker Hub. It replaces the
+unavailable upstream Quay image and retains the MinIO command and credential
+configuration used by this local setup.
+
 ## Prerequisites
 
 - Docker or Docker Desktop
