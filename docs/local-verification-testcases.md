@@ -18,6 +18,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | AUTO-004 | CI deploy change classifier   | `./gradlew testCiScripts --no-daemon`                                                                                                         | Classifier allows image-only Helm diffs without approval, requires approval for service/runtime, non-image Helm, and suppressed Secret changes, and writes a manual approval review with the full Helm diff. |
 | AUTO-005 | PKB artifact storage integration tests | `./gradlew test --tests 'com.biocompass.pkb.artifact.*' --tests 'com.biocompass.pkb.command.*' --tests 'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbPersistenceDaoIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbSchemaMigrationTest' --no-daemon` | Deterministic object-key generation, artifact registration validation, object-reference persistence, artifact provenance, consent binding, and enrichment event behavior pass. |
 | AUTO-006 | Local service E2E suite       | With local dependencies and the service running, execute `./gradlew e2eTest --no-daemon`                                                       | Black-box HTTP verification passes against the running local service, seeded PostgreSQL data, and a temporary BioCompass auth introspection stub.                              |
+| AUTO-007 | Kafka eventing foundation     | `./gradlew test --tests 'com.biocompass.pkb.command.event.*' --tests 'com.biocompass.pkb.eventing.*' --no-daemon`                            | Event contracts, transactional outbox persistence, Kafka publication, and broker-backed idempotent consumption pass.                                                       |
 
 ## Local Service Testcases
 
@@ -61,6 +62,8 @@ The E2E suite starts a temporary BioCompass auth introspection stub on `http://l
 | LOCAL-016 | PKB staff cross-user query           | Covered by `./gradlew e2eTest --no-daemon`, which authenticates as a staff user.                                                                                                                                   | Response status is `200` and contains the requested user-scoped item.                                 |
 | LOCAL-017 | PKB query validation                 | Covered by `./gradlew e2eTest --no-daemon`, which calls missing, malformed, and out-of-range query/path parameters with an active opaque Bearer token.                                                             | Invalid requests return `400`.                                                                        |
 | LOCAL-018 | Artifact metadata registration       | After auth/API exposure and local MinIO startup, register artifact metadata for a document object key such as `users/{user_id}/documents/{document_id}/original`.                                                    | PostgreSQL contains the `pkb_artifact`, `pkb_artifact_provenance`, and optional artifact consent rows; object bytes are not stored in PostgreSQL. |
+| LOCAL-019 | Kafka event topics                   | With the local profile service running, execute `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list`                                                                  | The output contains the configured PKB event topics, including `pkb.item.created`, `pkb.artifact.created`, `pkb.enrichment.requested`, and `pkb.enrichment.completed`.       |
+| LOCAL-020 | Kafka outbox and idempotent consumer | `./gradlew test --tests 'com.biocompass.pkb.command.event.*' --tests 'com.biocompass.pkb.eventing.*' --no-daemon`                                                                        | A committed item write leaves an unpublished outbox event with the complete payload; once an enrichment workflow is installed, Kafka delivery invokes it only once for a repeated event ID. |
 
 ## Feature Testcase Backlog
 
@@ -68,5 +71,4 @@ Add concrete local service testcases here as features land:
 
 - Item create/update/delete HTTP flows.
 - Artifact object upload/download HTTP flows after metadata registration.
-- Kafka event publication and consumer/idempotency behavior.
 - FHIR mapping and resource retrieval behavior.

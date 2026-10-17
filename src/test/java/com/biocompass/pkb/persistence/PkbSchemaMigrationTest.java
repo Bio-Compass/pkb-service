@@ -33,7 +33,9 @@ class PkbSchemaMigrationTest extends AbstractPostgresIntegrationTest {
                         "pkb_consent_binding",
                         "pkb_artifact",
                         "pkb_artifact_provenance",
-                        "pkb_fact_embedding");
+                        "pkb_fact_embedding",
+                        "pkb_outbox_event",
+                        "pkb_processed_event");
 
         assertThat(columnTypes("pkb_item"))
                 .containsEntry("payload", "jsonb")
@@ -42,6 +44,9 @@ class PkbSchemaMigrationTest extends AbstractPostgresIntegrationTest {
                 .containsEntry("search_document", "tsvector");
         assertThat(columnTypes("pkb_fact_embedding"))
                 .containsEntry("embedding", "vector");
+        assertThat(columnTypes("pkb_outbox_event"))
+                .containsEntry("payload", "jsonb")
+                .containsEntry("published_at", "timestamptz");
     }
 
     @Test
@@ -62,7 +67,8 @@ class PkbSchemaMigrationTest extends AbstractPostgresIntegrationTest {
                         "idx_pkb_artifact_user_item",
                         "idx_pkb_artifact_provenance_artifact",
                         "idx_pkb_consent_binding_scope_gin",
-                        "idx_pkb_fact_embedding_vector_hnsw");
+                        "idx_pkb_fact_embedding_vector_hnsw",
+                        "idx_pkb_outbox_event_unpublished");
     }
 
     @Test

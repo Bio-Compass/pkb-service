@@ -1,6 +1,19 @@
 spring:
   application:
     name: pkb-service
+  kafka:
+    bootstrap-servers: ${PKB_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.biocompass.pkb.command.event
+        spring.json.value.default.type: com.biocompass.pkb.command.event.PkbDomainEvent
+    listener:
+      ack-mode: record
 
 management:
   endpoint:
@@ -14,3 +27,13 @@ management:
 
 server:
   port: 8080
+
+biocompass:
+  pkb:
+    eventing:
+      enabled: ${PKB_EVENTING_ENABLED:false}
+      relay-interval: ${PKB_EVENTING_RELAY_INTERVAL:PT1S}
+      relay-batch-size: ${PKB_EVENTING_RELAY_BATCH_SIZE:50}
+      consumer-name: ${PKB_EVENTING_CONSUMER_NAME:pkb-enrichment}
+      topic-partitions: ${PKB_EVENTING_TOPIC_PARTITIONS:3}
+      publish-timeout: ${PKB_EVENTING_PUBLISH_TIMEOUT:PT5S}

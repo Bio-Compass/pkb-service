@@ -12,6 +12,7 @@ The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb
 - Include the GitHub issue number in the branch name.
 - Link the branch or PR back to the corresponding GitHub issue.
 - Keep implementation scoped to the current issue unless the user explicitly expands scope.
+- Do not add speculative production code, placeholder implementations, or extension points without a current runtime caller or concrete requirement. Defer them until the dependent client or workflow exists.
 - Deploy only after the diff has been manually reviewed and approved.
 
 ## Java Stack

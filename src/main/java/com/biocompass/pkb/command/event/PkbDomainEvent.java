@@ -15,6 +15,19 @@ public record PkbDomainEvent(
         String correlationId
 ) {
 
+    public String aggregateKey() {
+        if (pkbItemId != null) {
+            return pkbItemId.toString();
+        }
+        if (artifactId != null) {
+            return artifactId.toString();
+        }
+        if (relationshipId != null) {
+            return relationshipId.toString();
+        }
+        return eventId.toString();
+    }
+
     public static PkbDomainEvent itemCreated(UUID userId, UUID pkbItemId, String correlationId) {
         return event(PkbDomainEventType.ITEM_CREATED, userId, pkbItemId, null, null, null, correlationId);
     }
@@ -54,6 +67,10 @@ public record PkbDomainEvent(
 
     public static PkbDomainEvent enrichmentRequested(UUID userId, UUID artifactId, UUID pkbItemId, String correlationId) {
         return event(PkbDomainEventType.ENRICHMENT_REQUESTED, userId, pkbItemId, null, artifactId, null, correlationId);
+    }
+
+    public static PkbDomainEvent enrichmentCompleted(UUID userId, UUID artifactId, UUID pkbItemId, String correlationId) {
+        return event(PkbDomainEventType.ENRICHMENT_COMPLETED, userId, pkbItemId, null, artifactId, null, correlationId);
     }
 
     private static PkbDomainEvent event(
