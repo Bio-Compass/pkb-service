@@ -4,10 +4,8 @@ import com.biocompass.pkb.command.event.PkbDomainEvent;
 import com.biocompass.pkb.command.event.PkbDomainEventType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Service
 @RequiredArgsConstructor
 @ConditionalOnBean(PkbEnrichmentWorkflow.class)
 public class PkbIdempotentEventConsumer {

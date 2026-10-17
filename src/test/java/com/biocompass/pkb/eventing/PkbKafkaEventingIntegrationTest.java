@@ -1,6 +1,13 @@
 package com.biocompass.pkb.eventing;
 
+import com.biocompass.pkb.authorization.PkbAuthorizationDecision;
+import com.biocompass.pkb.authorization.PkbAuthorizationGateway;
+import com.biocompass.pkb.authorization.PkbAuthorizationRequest;
+import com.biocompass.pkb.command.dto.CreatePkbItemCommand;
+import com.biocompass.pkb.command.dto.PkbProvenanceCommand;
 import com.biocompass.pkb.command.event.PkbDomainEvent;
+import com.biocompass.pkb.kafka.PkbKafkaCommandContext;
+import com.biocompass.pkb.kafka.PkbKafkaCommandSubmissionService;
 import com.biocompass.pkb.persistence.AbstractPostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -12,6 +19,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Container;
@@ -22,14 +30,21 @@ import org.testcontainers.utility.DockerImageName;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 @ActiveProfiles("test")
-@SpringBootTest(properties = "biocompass.pkb.eventing.enabled=true")
+@SpringBootTest(properties = {
+        "biocompass.pkb.eventing.enabled=true",
+        "biocompass.pkb.kafka.command-ingress-enabled=true"
+})
 @Testcontainers
 class PkbKafkaEventingIntegrationTest extends AbstractPostgresIntegrationTest {
 
@@ -48,6 +63,40 @@ class PkbKafkaEventingIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private RecordingEnrichmentWorkflow enrichmentWorkflow;
+
+    @Autowired
+    private PkbKafkaCommandSubmissionService commandSubmissionService;
+
+    @MockitoBean
+    private PkbAuthorizationGateway authorizationGateway;
+
+    @Test
+    void commandIngressAndEventOutboxWorkTogetherWithSeparatePayloadTypes() {
+        var userId = UUID.randomUUID();
+        var command = new CreatePkbItemCommand(
+                userId, "observation", "note", "active", Map.of("text", "water"), "manual",
+                "coexistence-" + userId, null, null, null, "en", java.util.List.of(), java.util.List.of(),
+                "unverified", null,
+                new PkbProvenanceCommand("manual", "user", "workflow-1", "local-test", "manual-entry"),
+                "workflow-1");
+        var actor = new PkbAuthorizationRequest.Actor(userId.toString(), userId, false, Set.of("user"), Set.of(), "self");
+        when(authorizationGateway.decide(any())).thenAnswer(invocation -> {
+            PkbAuthorizationRequest request = invocation.getArgument(0);
+            return new PkbAuthorizationDecision(true, "decision-" + request.commandId(), request.action(),
+                    request.resource().targetUserId(), Map.of());
+        });
+
+        commandSubmissionService.submit(UUID.randomUUID(), command,
+                new PkbKafkaCommandContext("pkb-service", actor, "http-decision"));
+
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+            assertThat(queryStrings("SELECT pkb_item_id FROM pkb_item WHERE user_id = ?", userId)).hasSize(1);
+            assertThat(queryStrings("""
+                    SELECT event_type FROM pkb_outbox_event
+                    WHERE user_id = ? AND published_at IS NOT NULL
+                    """, userId)).containsExactly("pkb.item.created");
+        });
+    }
 
     @Test
     void kafkaConsumerProcessesAnEnrichmentCompletionOnlyOnceForTheSameEventId() throws Exception {

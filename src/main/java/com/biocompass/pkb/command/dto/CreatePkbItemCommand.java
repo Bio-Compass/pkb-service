@@ -1,13 +1,13 @@
 package com.biocompass.pkb.command.dto;
 
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -55,6 +55,7 @@ public record CreatePkbItemCommand(
     }
 
     @AssertTrue(message = "validity validUntil must not be before validFrom")
+    @JsonIgnore
     public boolean isValidityWindowValid() {
         return validFrom == null || validUntil == null || !validUntil.isBefore(validFrom);
     }

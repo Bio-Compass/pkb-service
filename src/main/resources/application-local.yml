@@ -13,6 +13,11 @@ spring:
 
 biocompass:
   pkb:
+    authorization:
+      decision-url: ${PKB_AU_DECISION_URL:http://localhost:8181/v1/data/biocompass/pkb/authz/decision}
+    opa:
+      base-url: ${PKB_OPA_BASE_URL:http://localhost:8181}
+      decision-path: ${PKB_OPA_DECISION_PATH:/v1/data/biocompass/pkb/authz/decision}
     auth:
       default-purpose: ${PKB_AUTH_DEFAULT_PURPOSE:self}
       introspection:
@@ -34,6 +39,8 @@ biocompass:
       consumer-name: ${PKB_EVENTING_CONSUMER_NAME:pkb-enrichment}
       topic-partitions: ${PKB_EVENTING_TOPIC_PARTITIONS:3}
       publish-timeout: ${PKB_EVENTING_PUBLISH_TIMEOUT:PT5S}
+    kafka:
+      command-ingress-enabled: ${PKB_KAFKA_COMMAND_INGRESS_ENABLED:true}
 
 logging:
   level:

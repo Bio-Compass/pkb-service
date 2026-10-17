@@ -30,7 +30,7 @@ The PKB is NOT:
 ```text
 PostgreSQL canonical PKB
 + HAPI FHIR interoperability facade
-+ service-local authorization policy engine
++ BioCompass AU Service policy decisions
 + S3-compatible object storage
 + pgvector + PostgreSQL full-text search
 + optional Elasticsearch projection later
@@ -49,8 +49,8 @@ PostgreSQL canonical PKB
         │                  │                  │
         ▼                  ▼                  ▼
 ┌──────────────┐  ┌────────────────┐  ┌────────────────┐
-│ PKB Command  │  │ PKB Query      │  │ Authorization  │
-│ Service      │  │ Service        │  │ Policies       │
+│ PKB Command  │  │ PKB Query      │  │ BioCompass AU  │
+│ Service      │  │ Service        │  │ Service (PDP)  │
 └──────┬───────┘  └────────┬───────┘  └────────────────┘
        │                   │
        ▼                   ▼
@@ -401,19 +401,25 @@ Recommended stack:
 ```text
 OIDC/OAuth2
 + Spring Security
-+ PKB authorization policies
++ BioCompass AU Service decisions
 + PostgreSQL RLS
 ```
 
 ---
 
-# Policy Example
+# AU Policy Example
 
 ```text
 allow query when actor.user_id == requested_user_id
 allow cross-user query when actor.is_staff == true
 allow cross-user query when actor has pkb:read:any authority
 ```
+
+These rules belong to the BioCompass AU Service. PKB is a policy-enforcement
+point: it sends current actor, action, target, resource, and purpose attributes,
+validates that the returned decision is bound to the request, applies supported
+obligations, and fails closed. PKB command handlers do not duplicate role,
+staff, consent, privacy, or purpose-of-use policy.
 
 ---
 
@@ -454,9 +460,9 @@ CREATE TABLE pkb_fact_embedding (
 
 ```text
 Java 25
-Spring Boot 3
+Spring Boot 4.0.x
 PostgreSQL
-Hibernate 6
+Hibernate ORM 7.2.x
 Flyway
 ```
 
@@ -475,7 +481,8 @@ HAPI FHIR
 ```text
 Spring Security
 OAuth2/OIDC
-PKB authorization policies
+BioCompass auth introspection
+BioCompass AU Service decisions
 ```
 
 ---
@@ -484,9 +491,15 @@ PKB authorization policies
 
 ```text
 Kafka
-or
-RabbitMQ
 ```
+
+Kafka has separate contracts for pre-write command ingress and post-commit
+domain events. HTTP command endpoints return `202 Accepted` only after the
+ingress record is broker-acknowledged. The consumer independently obtains a
+fresh AU decision before persistence, uses a transactional inbox for exact
+idempotency, and routes permanent or exhausted failures to a durable DLT.
+Post-commit domain events require a transactional outbox and use different
+topics. See [Kafka Command Ingress](kafka-command-ingress.md).
 
 ---
 
@@ -586,7 +599,7 @@ PostgreSQL
 + JSONB
 + pgvector
 + HAPI FHIR
-+ PKB authorization policies
++ BioCompass AU Service policy decisions
 + S3-compatible storage
 ```
 

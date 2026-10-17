@@ -1,9 +1,7 @@
 package com.biocompass.pkb.eventing;
 
 import com.biocompass.pkb.command.event.PkbDomainEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -13,9 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PkbEventPayloadMapperTest {
 
     private final PkbEventPayloadMapper mapper = new PkbEventPayloadMapper(
-            new ObjectMapper()
-                    .registerModule(new JavaTimeModule())
-                    .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            JsonMapper.builder().build()
     );
 
     @Test

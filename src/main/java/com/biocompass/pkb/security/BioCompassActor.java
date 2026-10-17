@@ -7,19 +7,35 @@ import java.util.UUID;
 
 public record BioCompassActor(
         UUID userId,
+        String actorId,
         String email,
         boolean emailVerified,
         boolean staff,
-        Set<String> roles
+        Set<String> roles,
+        Set<String> scopes,
+        String purposeOfUse
 ) {
 
     public BioCompassActor {
         Objects.requireNonNull(userId, "userId must not be null");
+        actorId = actorId == null || actorId.isBlank() ? userId.toString() : actorId.strip();
         roles = normalizeRoles(roles);
+        scopes = normalizeRoles(scopes);
+        purposeOfUse = purposeOfUse == null || purposeOfUse.isBlank() ? "self" : purposeOfUse.strip();
+    }
+
+    public BioCompassActor(
+            UUID userId,
+            String email,
+            boolean emailVerified,
+            boolean staff,
+            Set<String> roles
+    ) {
+        this(userId, null, email, emailVerified, staff, roles, Set.of(), "self");
     }
 
     public BioCompassActor(UUID userId, Set<String> roles) {
-        this(userId, null, false, false, roles);
+        this(userId, null, null, false, false, roles, Set.of(), "self");
     }
 
     public boolean hasAnyRole(Set<String> expectedRoles) {
