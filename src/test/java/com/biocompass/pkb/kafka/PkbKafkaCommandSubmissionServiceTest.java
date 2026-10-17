@@ -92,6 +92,7 @@ class PkbKafkaCommandSubmissionServiceTest {
                 "manual",
                 "note-1",
                 Instant.parse("2026-08-23T10:15:30Z"),
+                "Europe/Amsterdam",
                 Instant.parse("2026-08-23T10:00:00Z"),
                 Instant.parse("2026-08-23T11:00:00Z"),
                 "en",

@@ -5,6 +5,7 @@ import com.biocompass.pkb.command.dto.CreatePkbRelationshipCommand;
 import com.biocompass.pkb.command.dto.PkbProvenanceCommand;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ class PkbCommandNormalizerTest {
                 new LinkedHashMap<>(Map.of("amount", 350, "unit", "ml")),
                 " HealthKit ",
                 " sample-1 ",
+                null,
                 null,
                 null,
                 null,
@@ -54,6 +56,63 @@ class PkbCommandNormalizerTest {
         assertThat(provenance.getSourceKind()).isEqualTo("healthkit_sync");
         assertThat(provenance.getActorType()).isEqualTo("system");
         assertThat(provenance.getWorkflowId()).isEqualTo("workflow-1");
+    }
+
+    @Test
+    void preservesObservedTimezoneNormalizedToTrimmedValue() {
+        var command = new CreatePkbItemCommand(
+                UUID.randomUUID(),
+                "observation",
+                "note",
+                "active",
+                new LinkedHashMap<>(Map.of("text", "headache")),
+                "manual",
+                null,
+                Instant.parse("2026-06-20T06:15:00Z"),
+                " Europe/Amsterdam ",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("manual", null, null, null, null),
+                null
+        );
+
+        var item = normalizer.toItemEntity(command);
+
+        assertThat(item.getObservedAt()).isEqualTo(Instant.parse("2026-06-20T06:15:00Z"));
+        assertThat(item.getObservedTimezone()).isEqualTo("Europe/Amsterdam");
+    }
+
+    @Test
+    void normalizesBlankObservedTimezoneToNull() {
+        var command = new CreatePkbItemCommand(
+                UUID.randomUUID(),
+                "observation",
+                "note",
+                "active",
+                new LinkedHashMap<>(Map.of("text", "headache")),
+                "manual",
+                null,
+                Instant.parse("2026-06-20T06:15:00Z"),
+                "   ",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("manual", null, null, null, null),
+                null
+        );
+
+        var item = normalizer.toItemEntity(command);
+
+        assertThat(item.getObservedTimezone()).isNull();
     }
 
     @Test

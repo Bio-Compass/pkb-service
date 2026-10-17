@@ -202,6 +202,7 @@ class PkbKafkaCommandProcessorIntegrationTest extends AbstractPostgresIntegratio
                 null,
                 null,
                 null,
+                null,
                 new PkbProvenanceCommand("manual", null, null, null, null),
                 null);
 
@@ -238,6 +239,7 @@ class PkbKafkaCommandProcessorIntegrationTest extends AbstractPostgresIntegratio
                 Map.of("text", text),
                 "manual",
                 "note-" + UUID.randomUUID(),
+                null,
                 null,
                 null,
                 null,

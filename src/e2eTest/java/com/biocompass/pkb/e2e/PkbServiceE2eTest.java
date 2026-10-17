@@ -268,6 +268,8 @@ class PkbServiceE2eTest {
                 "payload", Map.of("text", "Kafka command ingress"),
                 "sourceType", "e2e",
                 "sourceId", sourceId,
+                "observedAt", "2026-06-20T10:15:00+02:00",
+                "observedTimezone", "Europe/Amsterdam",
                 "provenance", Map.of("sourceKind", "e2e")
         ));
 
@@ -288,6 +290,18 @@ class PkbServiceE2eTest {
         });
         int initialDeliveryCount = processedCommandDeliveryCount(commandId);
         assertThat(initialDeliveryCount).isPositive();
+
+        var search = get(itemsPath(ownerUserId), ownerUserId);
+        assertThat(search.statusCode()).isEqualTo(200);
+        var itemId = search.jsonArray().getFirst().get("itemId");
+        assertThat(search.jsonArray()).singleElement().satisfies(item -> {
+            assertThat(item.get("observedTimezone")).isEqualTo("Europe/Amsterdam");
+            assertThat(OffsetDateTime.parse(item.get("observedAt").toString()).toInstant())
+                    .isEqualTo(OffsetDateTime.parse("2026-06-20T08:15:00Z").toInstant());
+        });
+        var lookup = get("/api/pkb/items/" + itemId + "?userId=" + ownerUserId, ownerUserId);
+        assertThat(lookup.statusCode()).isEqualTo(200);
+        assertThat(lookup.jsonObject()).containsEntry("observedTimezone", "Europe/Amsterdam");
 
         var retried = postWithBearer(
                 "/api/pkb/commands/items?userId=" + ownerUserId,

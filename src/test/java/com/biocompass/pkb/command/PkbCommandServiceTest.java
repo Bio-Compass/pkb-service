@@ -258,6 +258,7 @@ class PkbCommandServiceTest {
                 null,
                 null,
                 null,
+                null,
                 java.util.List.of("Nutrition-Read"),
                 java.util.List.of("Nutrition", "Health"),
                 "User_Reported",
