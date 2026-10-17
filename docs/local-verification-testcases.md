@@ -19,7 +19,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | AUTO-005 | PKB artifact storage integration tests | `./gradlew artifactStorageTest --no-daemon` | Deterministic object-key generation, artifact registration validation, object-reference persistence, artifact provenance, consent binding, and enrichment event behavior pass. |
 | AUTO-006 | Local service E2E suite       | With local dependencies and the service running, execute `./gradlew e2eTest --no-daemon`                                                       | Black-box HTTP verification passes against the running local service, seeded PostgreSQL data, temporary BioCompass auth introspection stub, local AU decision endpoint, and Kafka consumer. |
 | AUTO-007 | Kafka command ingress tests   | `./gradlew kafkaIngressTest --no-daemon` | Real Kafka/PostgreSQL tests cover broker-acknowledged JSON submission, fresh AU enforcement, exact deduplication, mismatch detection, transient AU/database retry, immediate permanent-AU failure handling, exhaustion and malformed input to DLT, partition progress, and replay. |
-| AUTO-008 | PKB command HTTP API tests    | `./gradlew commandApiTest --no-daemon` | MockMvc exercises all command endpoints, header handling, authorization, validation and Kafka-publication error responses through Spring-managed controllers and MapStruct mappers. |
+| AUTO-008 | PKB command HTTP API tests    | `./gradlew commandApiTest --no-daemon` | MockMvc exercises all command endpoints, header handling, authorization, validation and Kafka-publication error responses through Spring-managed controllers and MapStruct mappers. Item create and supersession mapping preserve `observedTimezone`; HTTP creation accepts an omitted time zone or a valid IANA identifier with `observedAt`, preserves the instant, and rejects invalid identifiers, bare offsets, and time zones without `observedAt` before submission. |
 | AUTO-009 | PKB AU integration tests      | `./gradlew test --tests 'com.biocompass.pkb.authorization.*' --no-daemon` | The real AU HTTP client sends safe actor/service context, service credentials, and prior decision reference; enforcement fails closed for denial, invalid binding, obligations, and unavailability. |
 
 ## Local Service Testcases
@@ -74,6 +74,7 @@ The E2E suite starts a temporary BioCompass auth introspection stub on `http://l
 | LOCAL-024 | Kafka poison record                  | Run `PkbKafkaFailureHandlingIntegrationTest`, which publishes malformed raw JSON and then valid records. | Original malformed bytes reach the DLT without invoking AU or blocking subsequent consumption. |
 | LOCAL-025 | Kafka retry exhaustion and replay    | Run `PkbKafkaFailureHandlingIntegrationTest`, which exhausts AU retries, observes the DLT, restores AU, and copies the original record to the replay topic. | No write occurs during failure; replay performs a fresh AU check and commits exactly once. |
 | LOCAL-026 | Kafka production identity and ACLs   | Inspect the deployed broker credentials and ACLs described in [Kafka Command Ingress](kafka-command-ingress.md). | Only PKB can write ingress/DLT, only the operations identity can write replay, the PKB group can read ingress/replay, and command topics are separate from domain-event topics. |
+| LOCAL-027 | Observation time-zone round trip | Covered by `./gradlew e2eTest --no-daemon`, which posts an item with `observedAt: "2026-06-20T10:15:00+02:00"` and `observedTimezone: "Europe/Amsterdam"`, waits for Kafka processing, and retrieves it through search and ID lookup. | Both read paths return `observedTimezone: "Europe/Amsterdam"`; the observed instant remains `2026-06-20T08:15:00Z`. |
 
 ## Feature Testcase Backlog
 
@@ -82,4 +83,3 @@ Add concrete local service testcases here as features land:
 - Item create/update/delete HTTP flows.
 - Artifact object upload/download HTTP flows after metadata registration.
 - FHIR mapping and resource retrieval behavior.
-- PKB item `observed_timezone` acceptance and rejection: a command with `observed_at` and a valid IANA identifier is accepted and returned, an invalid identifier or a bare offset is rejected, and `observed_timezone` without `observed_at` is rejected.
