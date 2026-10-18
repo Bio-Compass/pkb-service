@@ -4,8 +4,6 @@ import org.flywaydb.core.Flyway;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
@@ -18,18 +16,29 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-@Testcontainers
-abstract class AbstractPostgresIntegrationTest {
+public abstract class AbstractPostgresIntegrationTest {
 
     private static final DockerImageName POSTGRES_IMAGE = DockerImageName
             .parse("pgvector/pgvector:0.8.2-pg17-trixie")
             .asCompatibleSubstituteFor("postgres");
 
-    @Container
-    protected static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(POSTGRES_IMAGE)
-            .withDatabaseName("pkb")
-            .withUsername("pkb")
-            .withPassword("pkb-local-password");
+    /**
+     * A singleton database for all subclasses in this JVM. It intentionally is not a
+     * {@code @Container}: Spring's test-context cache can retain an application context across
+     * subclasses, while the Testcontainers JUnit extension stops inherited static containers at
+     * the end of each subclass. Starting it here prevents a cached context from retaining a dead
+     * JDBC URL during a full-suite run.
+     */
+    protected static final PostgreSQLContainer<?> postgres = startPostgres();
+
+    private static PostgreSQLContainer<?> startPostgres() {
+        var container = new PostgreSQLContainer<>(POSTGRES_IMAGE)
+                .withDatabaseName("pkb")
+                .withUsername("pkb")
+                .withPassword("pkb-local-password");
+        container.start();
+        return container;
+    }
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {

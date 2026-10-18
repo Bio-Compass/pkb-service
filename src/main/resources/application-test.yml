@@ -5,6 +5,8 @@ spring:
 
 biocompass:
   pkb:
+    eventing:
+      enabled: false
     auth:
       default-purpose: self
       introspection:
