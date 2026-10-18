@@ -317,6 +317,41 @@ class PkbServiceE2eTest {
         assertThat(processedCommandCount(commandId)).isEqualTo(1);
     }
 
+    @Test
+    void supersessionEndpointCommitsReciprocalLinksAndProvenance() throws Exception {
+        var original = SeedItem.observation(ownerUserId, "e2e-supersession-original", "note",
+                "Original observation", observed("10:15:00"));
+        insertItem(original);
+        var commandId = UUID.randomUUID();
+        var sourceId = "e2e-supersession-" + commandId;
+        var body = objectMapper.writeValueAsString(Map.of("replacementItem", Map.of(
+                "entityType", "observation", "subtype", "note", "status", "active",
+                "payload", Map.of("text", "Replacement observation"), "sourceType", "e2e",
+                "sourceId", sourceId, "provenance", Map.of("sourceKind", "e2e"))));
+        var accepted = postWithBearer("/api/pkb/commands/items/" + original.itemId()
+                + "/supersessions?userId=" + ownerUserId, tokenFor(ownerUserId, false), commandId, body);
+        assertThat(accepted.statusCode()).isEqualTo(202);
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+            assertThat(processedCommandCount(commandId)).isEqualTo(1);
+            assertThat(itemCount(ownerUserId, sourceId)).isEqualTo(1);
+        });
+        var oldItem = get("/api/pkb/items/" + original.itemId() + "?userId=" + ownerUserId, ownerUserId);
+        assertThat(oldItem.statusCode()).isEqualTo(200);
+        var replacementId = oldItem.jsonObject().get("supersededBy");
+        assertThat(replacementId).isNotNull();
+        var replacement = get("/api/pkb/items/" + replacementId + "?userId=" + ownerUserId, ownerUserId);
+        assertThat(replacement.statusCode()).isEqualTo(200);
+        assertThat(replacement.jsonObject()).containsEntry("supersedes", original.itemId().toString());
+        try (var connection = connection();
+             var statement = connection.prepareStatement("select count(*) from pkb_provenance where pkb_item_id=?")) {
+            statement.setObject(1, UUID.fromString(replacementId.toString()));
+            try (var result = statement.executeQuery()) {
+                result.next();
+                assertThat(result.getInt(1)).isEqualTo(1);
+            }
+        }
+    }
+
     private static void waitForHealthyService() throws InterruptedException {
         Exception lastException = null;
         for (int attempt = 0; attempt < 30; attempt++) {

@@ -77,6 +77,13 @@ The E2E suite starts a temporary BioCompass auth introspection stub on `http://l
 | LOCAL-026 | Kafka production identity and ACLs   | Inspect the deployed broker credentials and ACLs described in [Kafka Command Ingress](kafka-command-ingress.md). | Only PKB can write ingress/DLT, only the operations identity can write replay, the PKB group can read ingress/replay, and command topics are separate from domain-event topics. |
 | LOCAL-027 | Observation time-zone round trip | Covered by `./gradlew e2eTest --no-daemon`, which posts an item with `observedAt: "2026-06-20T10:15:00+02:00"` and `observedTimezone: "Europe/Amsterdam"`, waits for Kafka processing, and retrieves it through search and ID lookup. | Both read paths return `observedTimezone: "Europe/Amsterdam"`; the observed instant remains `2026-06-20T08:15:00Z`. |
 
+## Supersession verification (issue #53)
+
+- `./gradlew commandTest persistenceTest kafkaIngressTest --no-daemon`: both command forms serialize competing replacements under an owner-scoped row lock. Tests observe real PostgreSQL blocking, including a preloaded original entity. Exactly one replacement/provenance pair and its two domain events commit; the losing Kafka inbox marker rolls back. If the lock holder rolls back, the waiting command succeeds.
+- `PkbSupersessionMigrationTest`: fresh databases enforce unique non-null `supersedes`, allow nulls and independent chains, and replace the old non-unique index. A V4 database with duplicate replacements fails V5 without altering records; migration succeeds after explicit manual reconciliation.
+- Sequential supersession: submit two distinct command IDs to `POST /api/pkb/commands/items/{itemId}/supersessions?userId=<owner>` with valid replacement bodies. Both submissions may return `202`; only the first applies. The later command reaches DLT with `PKB item is already superseded`, without an inbox row, replacement, provenance, or domain events. Verify the original's `superseded_by` and replacement's `supersedes` are reciprocal through item lookup or PostgreSQL. Missing/foreign-owned targets fail without writes.
+- Migration recovery: use the conflict query in [Canonical schema](pkb_canonical_schema.md), reconcile the history manually, then restart to rerun Flyway. Never discard a conflicting record automatically.
+
 ## Feature Testcase Backlog
 
 Add concrete local service testcases here as features land:

@@ -1,6 +1,10 @@
 package com.biocompass.pkb.persistence.repository;
 
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
@@ -11,6 +15,10 @@ import java.util.UUID;
 public interface PkbItemRepository extends JpaRepository<PkbItemEntity, UUID>, JpaSpecificationExecutor<PkbItemEntity> {
 
     Optional<PkbItemEntity> findByPkbItemIdAndUserId(UUID pkbItemId, UUID userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select item from PkbItemEntity item where item.pkbItemId = :itemId and item.userId = :userId")
+    Optional<PkbItemEntity> findOwnedItemForUpdate(@Param("userId") UUID userId, @Param("itemId") UUID itemId);
 
     List<PkbItemEntity> findAllByUserIdOrderByCreatedAtDesc(UUID userId);
 

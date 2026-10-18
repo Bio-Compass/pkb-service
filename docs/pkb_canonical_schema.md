@@ -49,6 +49,8 @@ derived facts, and other PKB entities.
 Important constraints and indexes:
 
 - `(pkb_item_id, user_id)` is unique so child tables can enforce same-user ownership.
+- A non-null `supersedes` is unique: one original item has at most one replacement. The command transaction locks the original before checking or writing; both reciprocal links and provenance commit together. Events publish only after commit.
+- Flyway V5 stops if historical duplicates exist. Inspect conflicts with `SELECT supersedes, array_agg(pkb_item_id) FROM pkb_item WHERE supersedes IS NOT NULL GROUP BY supersedes HAVING count(*) > 1;`. An operator must review the conflicting items, provenance, and reciprocal links, decide the correct history, and reconcile it before rerunning Flyway. The migration does not delete records or select a winner. PostgreSQL rolls back a failed V5 migration; rerun normally after resolution.
 - The payload must be a JSON object.
 - GIN indexes support JSONB payload search, array scope filtering, and full-text search.
 - User-scoped B-tree indexes support common filters by status, entity type, subtype, observed time, and validity window.

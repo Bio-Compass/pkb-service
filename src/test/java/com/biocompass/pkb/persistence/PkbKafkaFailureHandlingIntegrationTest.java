@@ -4,6 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -229,6 +230,32 @@ class PkbKafkaFailureHandlingIntegrationTest extends AbstractPostgresIntegration
                 .contains("different user, type, or payload");
         assertWrittenOnce(original);
         verify(authorizationGateway).decide(forCommand(original.commandId()));
+    }
+
+    @Test
+    void conflictingSupersessionGoesDirectlyToDltWithoutCanonicalOrInboxEffects() throws Exception {
+        var original = commandMessage();
+        var user = original.command().userId();
+        when(authorizationGateway.decide(any())).thenAnswer(invocation -> allowed(invocation.getArgument(0)));
+        publish(COMMAND_TOPIC, original);
+        awaitProcessed(original);
+        var originalId = itemDao.findAllByUser(user).getFirst().getPkbItemId();
+        var source = (CreatePkbItemCommand) original.command();
+        var replacement = source.withUserIdSupersedesAndCorrelationId(user, originalId, "replacement");
+        var winner = new PkbKafkaCommandMessage(UUID.randomUUID(), Instant.now(), original.context(), replacement);
+        publish(COMMAND_TOPIC, winner);
+        awaitProcessed(winner);
+        var loser = new PkbKafkaCommandMessage(UUID.randomUUID(), Instant.now(), original.context(),
+                new com.biocompass.pkb.command.dto.SupersedePkbItemCommand(user, originalId, replacement, "loser"));
+        publish(COMMAND_TOPIC, loser);
+
+        var deadLetter = awaitDeadLetter(value -> hasCommandId(value, loser.commandId()));
+        assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_MESSAGE)).contains("already superseded");
+        verify(authorizationGateway, times(1)).decide(forCommand(loser.commandId()));
+        assertThat(processedCommandRepository.existsById(loser.commandId())).isFalse();
+        assertThat(itemDao.findAllByUser(user)).hasSize(2);
+        var replacementId = itemDao.findByUserAndItemId(user, originalId).orElseThrow().getSupersededBy();
+        assertThat(itemDao.findProvenance(replacementId)).hasSize(1);
     }
 
     private void publish(String topic, PkbKafkaCommandMessage message) throws Exception {
