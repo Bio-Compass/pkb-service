@@ -49,6 +49,8 @@ derived facts, and other PKB entities.
 Important constraints and indexes:
 
 - `(pkb_item_id, user_id)` is unique so child tables can enforce same-user ownership.
+- Flyway V7 enforces global uniqueness of `(source_type, source_id)` for non-null source IDs through `uq_pkb_item_source`, replacing the old non-unique source index. The key spans users and all item statuses, including superseded items. Different source types and multiple null source IDs remain allowed.
+- Command writes lowercase source types and trim source IDs, converting blank IDs to null. Source IDs remain case-sensitive. A replacement must use a distinct source ID or null; supersession does not release the original identifier. Producers whose identifiers are only locally unique must namespace them within the source type.
 - A non-null `supersedes` is unique: one original item has at most one replacement. The command transaction locks the original before checking or writing; both reciprocal links and provenance commit together. Domain events are persisted in the transactional outbox with the replacement; the relay publishes to Kafka after commit.
 - Flyway V6 stops if historical duplicates exist. Inspect conflicts with `SELECT supersedes, array_agg(pkb_item_id) FROM pkb_item WHERE supersedes IS NOT NULL GROUP BY supersedes HAVING count(*) > 1;`. An operator must review the conflicting items, provenance, and reciprocal links, decide the correct history, and reconcile it before rerunning Flyway. The migration does not delete records or select a winner. PostgreSQL rolls back a failed V6 migration; rerun normally after resolution.
 - The payload must be a JSON object.

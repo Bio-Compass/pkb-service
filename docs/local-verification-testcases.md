@@ -27,6 +27,9 @@ Use this file as the living checklist for local verification. Update it when a c
 
 ## Local Service Testcases
 
+Issue #35 source uniqueness is covered by `./gradlew test --tests 'com.biocompass.pkb.command.PkbCommandNormalizerTest' --tests 'com.biocompass.pkb.persistence.PkbSourceUniquenessIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbKafkaFailureHandlingIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbKafkaCommandProcessorIntegrationTest' --no-daemon`.
+The checks verify fresh and empty-database upgrade migration, the partial unique index and removal of the old source index, duplicate rejection within/across users and for superseded items, case-sensitive identifiers, different source types, multiple null IDs, actual concurrent-insert blocking, and winner-only persistence. Kafka tests verify normalized duplicate sources reach the DLT without committed item, provenance, inbox, or outbox effects; exact command-ID redelivery still writes once.
+
 Start local dependencies before running these checks:
 
 ```sh
@@ -80,6 +83,7 @@ The E2E suite starts a temporary BioCompass auth introspection stub on `http://l
 | LOCAL-027 | Observation time-zone round trip | Covered by `./gradlew e2eTest --no-daemon`, which posts an item with `observedAt: "2026-06-20T10:15:00+02:00"` and `observedTimezone: "Europe/Amsterdam"`, waits for Kafka processing, and retrieves it through search and ID lookup. | Both read paths return `observedTimezone: "Europe/Amsterdam"`; the observed instant remains `2026-06-20T08:15:00Z`. |
 | LOCAL-028 | Kafka event topics                   | With the local profile service running, execute `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list`                                                                  | The output contains the configured PKB event topics, including `pkb.item.created`, `pkb.artifact.created`, `pkb.enrichment.requested`, and `pkb.enrichment.completed`.       |
 | LOCAL-029 | Kafka outbox and idempotent consumer | `./gradlew test --tests 'com.biocompass.pkb.command.event.*' --tests 'com.biocompass.pkb.eventing.*' --no-daemon`                                                                        | A committed item write leaves an unpublished outbox event with the complete payload; once an enrichment workflow is installed, Kafka delivery invokes it only once for a repeated event ID. |
+| LOCAL-030 | Global source-identifier uniqueness | With the local service running, run `./gradlew e2eTest --no-daemon` and inspect `pg_indexes` for `uq_pkb_item_source`. | V7 creates a unique `(source_type, source_id)` index with `WHERE source_id IS NOT NULL` and removes `idx_pkb_item_source`. Existing HTTP creation/retry flows still return `202` and commit once; a different command with a duplicate source is a permanent consumer failure, not an upsert or synchronous HTTP conflict. |
 
 ## Supersession verification (issue #53)
 
