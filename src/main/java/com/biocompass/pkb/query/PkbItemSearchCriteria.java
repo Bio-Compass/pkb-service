@@ -1,6 +1,7 @@
 package com.biocompass.pkb.query;
 
 import java.time.OffsetDateTime;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -22,10 +23,10 @@ public record PkbItemSearchCriteria(
 
     public PkbItemSearchCriteria {
         Objects.requireNonNull(userId, "userId must not be null");
-        entityType = normalizeBlank(entityType);
-        subtype = normalizeBlank(subtype);
-        status = normalizeBlank(status);
-        privacyScope = normalizeBlank(privacyScope);
+        entityType = normalizeCanonicalCode(entityType);
+        subtype = normalizeCanonicalCode(subtype);
+        status = normalizeCanonicalCode(status);
+        privacyScope = normalizeCanonicalCode(privacyScope);
         textQuery = normalizeBlank(textQuery);
 
         if (observedFrom != null && observedUntil != null && observedUntil.isBefore(observedFrom)) {
@@ -52,6 +53,11 @@ public record PkbItemSearchCriteria(
                 null,
                 DEFAULT_LIMIT,
                 0);
+    }
+
+    private static String normalizeCanonicalCode(String value) {
+        String normalized = normalizeBlank(value);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     }
 
     private static String normalizeBlank(String value) {

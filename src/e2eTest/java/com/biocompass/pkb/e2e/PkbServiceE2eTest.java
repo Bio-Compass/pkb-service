@@ -220,6 +220,49 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    void canonicalSearchFiltersHaveEquivalentCaseWhitespaceAndPaginationResults() throws Exception {
+        var older = SeedItem.observation(ownerUserId, "e2e-case-older", "hydration", "Hydration older", observed("08:00:00"));
+        var newer = SeedItem.observation(ownerUserId, "e2e-case-newer", "hydration", "Hydration newer", observed("09:00:00"));
+        var otherOwner = SeedItem.observation(otherUserId, "e2e-case-other-owner", "hydration", "Hydration other", observed("10:00:00"));
+        var otherSubtype = SeedItem.observation(ownerUserId, "e2e-case-other-subtype", "symptom", "Hydration symptom", observed("11:00:00"));
+        var otherStatus = SeedItem.observation(ownerUserId, "e2e-case-other-status", "hydration", "Hydration archived", observed("12:00:00"))
+                .withStatus("archived");
+        var otherPrivacy = SeedItem.observation(ownerUserId, "e2e-case-other-privacy", "hydration", "Hydration restricted", observed("13:00:00"))
+                .withPrivacyScope(List.of("restricted"));
+        insertItems(older, newer, otherOwner, otherSubtype, otherStatus, otherPrivacy);
+
+        List<Map<String, String>> variants = List.of(
+                Map.of("entityType", "observation", "subtype", "hydration", "status", "active", "privacyScope", "health"),
+                Map.of("entityType", "Observation", "subtype", "HYDRATION", "status", "ACTIVE", "privacyScope", "HeAlTh"),
+                Map.of("entityType", " \u2003Observation\u2003 ", "subtype", " HYDRATION ", "status", " ACTIVE ", "privacyScope", " Health "));
+        List<Map<String, Object>> baseline = null;
+        for (var variant : variants) {
+            var filters = new java.util.HashMap<>(variant);
+            filters.put("userId", ownerUserId.toString());
+            filters.put("text", "HYDRATION");
+            var response = get(path("/api/pkb/items", filters), ownerUserId);
+            assertThat(response.statusCode()).isEqualTo(200);
+            var items = response.jsonArray();
+            assertThat(items).extracting(item -> item.get("sourceId"))
+                    .containsExactly("e2e-case-newer", "e2e-case-older");
+            assertThat(items).allSatisfy(item -> assertThat(item.get("userId")).isEqualTo(ownerUserId.toString()));
+            if (baseline == null) {
+                baseline = items;
+            }
+            assertThat(items).isEqualTo(baseline);
+
+            filters.put("limit", "1");
+            for (int offset = 0; offset < 3; offset++) {
+                filters.put("offset", Integer.toString(offset));
+                var page = get(path("/api/pkb/items", filters), ownerUserId);
+                assertThat(page.statusCode()).isEqualTo(200);
+                assertThat(page.jsonArray()).isEqualTo(items.subList(Math.min(offset, 2), Math.min(offset + 1, 2)));
+            }
+            assertThat(get(path("/api/pkb/items", filters), otherUserId).statusCode()).isEqualTo(403);
+        }
+    }
+
+    @Test
     void searchesByValidityWindowAndReturnsEmptyResultWhenNoItemsMatch() throws Exception {
         var currentlyValid = SeedItem.observation(ownerUserId, "e2e-valid-current", "hydration", "Current", observed("10:00:00"))
                 .withValidity(observed("09:00:00"), observed("11:00:00"));
