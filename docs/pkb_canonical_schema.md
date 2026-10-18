@@ -49,6 +49,8 @@ derived facts, and other PKB entities.
 Important constraints and indexes:
 
 - `(pkb_item_id, user_id)` is unique so child tables can enforce same-user ownership.
+- Flyway V7 enforces global uniqueness of `(source_type, source_id)` for non-null source IDs through `uq_pkb_item_source`, replacing the old non-unique source index. The key spans users and all item statuses, including superseded items. Different source types and multiple null source IDs remain allowed.
+- Command writes lowercase source types and trim source IDs, converting blank IDs to null. Source IDs remain case-sensitive. A replacement must use a distinct source ID or null; supersession does not release the original identifier. Producers whose identifiers are only locally unique must namespace them within the source type.
 - The payload must be a JSON object.
 - GIN indexes support JSONB payload search, array scope filtering, and full-text search.
 - User-scoped B-tree indexes support common filters by status, entity type, subtype, observed time, and validity window.

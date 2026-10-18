@@ -4,6 +4,9 @@ import com.biocompass.pkb.command.dto.CreatePkbItemCommand;
 import com.biocompass.pkb.command.dto.CreatePkbRelationshipCommand;
 import com.biocompass.pkb.command.dto.PkbProvenanceCommand;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -26,7 +29,7 @@ class PkbCommandNormalizerTest {
                 " ACTIVE ",
                 new LinkedHashMap<>(Map.of("amount", 350, "unit", "ml")),
                 " HealthKit ",
-                " sample-1 ",
+                " Sample-1 ",
                 null,
                 null,
                 null,
@@ -47,7 +50,7 @@ class PkbCommandNormalizerTest {
         assertThat(item.getSubtype()).isEqualTo("water");
         assertThat(item.getStatus()).isEqualTo("active");
         assertThat(item.getSourceType()).isEqualTo("healthkit");
-        assertThat(item.getSourceId()).isEqualTo("sample-1");
+        assertThat(item.getSourceId()).isEqualTo("Sample-1");
         assertThat(item.getLanguage()).isEqualTo("en-us");
         assertThat(item.getConsentScope()).containsExactly("nutrition-read");
         assertThat(item.getPrivacyScope()).containsExactly("health", "nutrition");
@@ -130,5 +133,20 @@ class PkbCommandNormalizerTest {
 
         assertThat(relationship.getUserId()).isEqualTo(userId);
         assertThat(relationship.getRelationshipType()).isEqualTo("contributes-to");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t "})
+    void normalizesAbsentSourceIdentifiersToNull(String sourceId) {
+        var command = new CreatePkbItemCommand(
+                UUID.randomUUID(), "observation", "note", "active", Map.of("text", "note"),
+                " Manual ", sourceId, null, null, null, null, null, null, null, null, null,
+                new PkbProvenanceCommand("manual", null, null, null, null), null);
+
+        var item = normalizer.toItemEntity(command);
+
+        assertThat(item.getSourceType()).isEqualTo("manual");
+        assertThat(item.getSourceId()).isNull();
     }
 }
