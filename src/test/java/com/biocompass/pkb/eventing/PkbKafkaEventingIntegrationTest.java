@@ -75,7 +75,7 @@ class PkbKafkaEventingIntegrationTest extends AbstractPostgresIntegrationTest {
         var userId = UUID.randomUUID();
         var command = new CreatePkbItemCommand(
                 userId, "observation", "note", "active", Map.of("text", "water"), "manual",
-                "coexistence-" + userId, null, null, null, "en", java.util.List.of(), java.util.List.of(),
+                "coexistence-" + userId, null, null, null, null, "en", java.util.List.of(), java.util.List.of(),
                 "unverified", null,
                 new PkbProvenanceCommand("manual", "user", "workflow-1", "local-test", "manual-entry"),
                 "workflow-1");

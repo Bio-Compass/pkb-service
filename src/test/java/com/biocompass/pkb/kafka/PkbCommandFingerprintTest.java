@@ -49,6 +49,7 @@ class PkbCommandFingerprintTest {
                 null,
                 null,
                 null,
+                null,
                 "en",
                 null,
                 null,

@@ -31,7 +31,8 @@ derived facts, and other PKB entities.
 | `payload` | Canonical structured item body as JSONB. Stores domain-specific data that does not belong in the shared envelope. |
 | `source_type` | Kind of source that produced the item, such as manual entry, FHIR import, OCR, enrichment, or device sync. |
 | `source_id` | Optional source-system identifier for correlation, deduplication, and provenance tracing. |
-| `observed_at` | Time the represented fact or event was observed in the real world. |
+| `observed_at` | Time the represented fact or event was observed in the real world. Stored as a canonical instant. |
+| `observed_timezone` | Optional IANA time-zone identifier (for example `Europe/Amsterdam`) in which `observed_at` was recorded. Supplies the original local-time context and must not be used to reinterpret the stored instant. Only permitted when `observed_at` is present. |
 | `ingested_at` | Time the PKB service accepted the item into the canonical store. Defaults to insertion time. |
 | `valid_from` | Start of the time window during which the item should be considered valid. |
 | `valid_until` | End of the validity window. Must not be before `valid_from` when both are present. |

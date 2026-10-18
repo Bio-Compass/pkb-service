@@ -57,7 +57,7 @@ class LocalInfrastructureContextTest {
 
     @Container
     static final GenericContainer<?> minio = new GenericContainer<>(
-            DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z"))
+            DockerImageName.parse("pgsty/minio:RELEASE.2026-08-04T00-00-00Z"))
             .withEnv("MINIO_ROOT_USER", "pkb-local-access")
             .withEnv("MINIO_ROOT_PASSWORD", "pkb-local-secret")
             .withCommand("server", "/data", "--console-address", ":9001")

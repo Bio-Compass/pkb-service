@@ -13,6 +13,7 @@ public record CreatePkbItemRequest(
         String sourceType,
         String sourceId,
         Instant observedAt,
+        String observedTimezone,
         Instant validFrom,
         Instant validUntil,
         String language,

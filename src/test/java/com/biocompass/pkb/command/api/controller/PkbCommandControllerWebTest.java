@@ -28,11 +28,14 @@ import com.biocompass.pkb.kafka.PkbKafkaCommandPublicationException;
 import com.biocompass.pkb.authorization.PkbWriteAuthorizationService;
 import com.biocompass.pkb.security.BioCompassActor;
 import com.biocompass.pkb.security.BioCompassActorAuthenticationResolver;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -120,7 +123,67 @@ class PkbCommandControllerWebTest {
             assertThat(command.consentScope()).containsExactly("self-read");
             assertThat(command.privacyScope()).containsExactly("health");
             assertThat(command.correlationId()).isEqualTo("item-correlation");
+            assertThat(command.observedTimezone()).isNull();
         });
+    }
+
+    @Test
+    void createsItemWithObservedTimezoneWithoutChangingInstant() throws Exception {
+        var commandId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/pkb/commands/items")
+                        .queryParam("userId", USER_ID.toString())
+                        .header("X-Command-Id", commandId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_ITEM_REQUEST.replace("\"sourceType\":\"manual\",", """
+                                "sourceType":"manual",
+                                "observedAt":"2026-06-20T10:15:00+02:00",
+                                "observedTimezone":"Europe/Amsterdam",
+                                """)))
+                .andExpect(status().isAccepted());
+
+        assertThat(capturedCommand(commandId)).isInstanceOfSatisfying(CreatePkbItemCommand.class, command -> {
+            assertThat(command.observedAt()).isEqualTo(Instant.parse("2026-06-20T08:15:00Z"));
+            assertThat(command.observedTimezone()).isEqualTo("Europe/Amsterdam");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Not/A/Real/Zone", "+02:00"})
+    void rejectsInvalidObservedTimezoneBeforeSubmission(String timezone) throws Exception {
+        mockMvc.perform(post("/api/pkb/commands/items")
+                        .queryParam("userId", USER_ID.toString())
+                        .header("X-Command-Id", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_ITEM_REQUEST.replace("\"sourceType\":\"manual\",", """
+                                "sourceType":"manual",
+                                "observedAt":"2026-06-20T08:15:00Z",
+                                "observedTimezone":"%s",
+                                """.formatted(timezone))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("pkb_invalid_command"))
+                .andExpect(jsonPath("$.message").value(containsString("observedTimezone must be a valid IANA time-zone identifier")));
+
+        verify(authorizationService, never()).authorize(any(), any(), any());
+        verify(commandSubmissionGateway, never()).submit(any(), any(), any());
+    }
+
+    @Test
+    void rejectsObservedTimezoneWithoutObservedAt() throws Exception {
+        mockMvc.perform(post("/api/pkb/commands/items")
+                        .queryParam("userId", USER_ID.toString())
+                        .header("X-Command-Id", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_ITEM_REQUEST.replace("\"sourceType\":\"manual\",", """
+                                "sourceType":"manual",
+                                "observedTimezone":"Europe/Amsterdam",
+                                """)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("pkb_invalid_command"))
+                .andExpect(jsonPath("$.message").value(containsString("observedTimezone requires observedAt")));
+
+        verify(authorizationService, never()).authorize(any(), any(), any());
+        verify(commandSubmissionGateway, never()).submit(any(), any(), any());
     }
 
     @Test

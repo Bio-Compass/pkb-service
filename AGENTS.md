@@ -17,6 +17,15 @@ Read only the documentation relevant to the current change. Use the architecture
 - Do not add speculative production code, placeholder implementations, or extension points without a current runtime caller or concrete requirement. Defer them until the dependent client or workflow exists.
 - Deploy only after the diff has been manually reviewed and approved.
 
+## Worktree Workflow
+
+- Create a dedicated git worktree for every new feature, bug fix, or non-trivial code change.
+- Do not start implementation directly in the main working directory.
+- Name the worktree branch with the issue number and a short description, e.g. `codex/pkb-123-short-description`.
+- Route all file edits, searches, tests, builds, and shell commands through the worktree directory.
+- Verify tests and any required lint/type checks pass before exiting the worktree.
+- Commit only changes that belong to the current issue before creating a PR or exiting the worktree.
+
 ## Java Stack
 
 - Use Java 25.
