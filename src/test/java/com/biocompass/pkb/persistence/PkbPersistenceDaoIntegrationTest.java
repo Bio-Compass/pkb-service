@@ -1,5 +1,8 @@
 package com.biocompass.pkb.persistence;
 
+import com.biocompass.pkb.command.PkbCommandService;
+import com.biocompass.pkb.command.dto.CreatePkbItemCommand;
+import com.biocompass.pkb.command.dto.PkbProvenanceCommand;
 import com.biocompass.pkb.persistence.dao.PkbArtifactDao;
 import com.biocompass.pkb.persistence.dao.PkbArtifactProvenanceDao;
 import com.biocompass.pkb.persistence.dao.PkbConsentBindingDao;
@@ -24,6 +27,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,6 +36,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 @SpringBootTest
 class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
+
+    @Autowired
+    private PkbCommandService commandService;
 
     @Autowired
     private PkbItemDao itemDao;
@@ -427,6 +434,59 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(itemQueryRepository.search(criteria))
                 .extracting(PkbItemRecord::itemId)
                 .containsExactly(matchingItem.getPkbItemId());
+    }
+
+    @Test
+    void findsCommandCreatedItemsUsingCanonicalFiltersIndividuallyAndTogether() {
+        UUID userId = UUID.randomUUID();
+        var older = createItem(userId, " Observation ", " Hydration ", " ACTIVE ", " Health ", 1);
+        var newer = createItem(userId, "OBSERVATION", "HYDRATION", "Active", "HEALTH", 2);
+        var differentEntity = createItem(userId, "Condition", "Hydration", "Active", "Health", 3);
+        var differentSubtype = createItem(userId, "Observation", "Symptom", "Active", "Health", 4);
+        var differentStatus = createItem(userId, "Observation", "Hydration", "Archived", "Health", 5);
+        var differentPrivacy = createItem(userId, "Observation", "Hydration", "Active", "Restricted", 6);
+        createItem(UUID.randomUUID(), "Observation", "Hydration", "Active", "Health", 7);
+
+        assertThat(older.getEntityType()).isEqualTo("observation");
+        assertThat(older.getSubtype()).isEqualTo("hydration");
+        assertThat(older.getStatus()).isEqualTo("active");
+        assertThat(older.getPrivacyScope()).containsExactly("health");
+
+        assertMatches(criteria(userId, " ObServation ", null, null, null),
+                older, newer, differentSubtype, differentStatus, differentPrivacy);
+        assertMatches(criteria(userId, null, " HYDRATION ", null, null),
+                older, newer, differentEntity, differentStatus, differentPrivacy);
+        assertMatches(criteria(userId, null, null, " ACTIVE ", null),
+                older, newer, differentEntity, differentSubtype, differentPrivacy);
+        assertMatches(criteria(userId, null, null, null, " HeAlth "),
+                older, newer, differentEntity, differentSubtype, differentStatus);
+
+        var mixedCase = itemQueryRepository.search(criteria(userId, " ObServation ", " HYDRATION ", " ACTIVE ", " HeAlth "));
+        var lowercase = itemQueryRepository.search(criteria(userId, "observation", "hydration", "active", "health"));
+        assertThat(mixedCase).extracting(PkbItemRecord::itemId)
+                .containsExactly(newer.getPkbItemId(), older.getPkbItemId());
+        assertThat(mixedCase).isEqualTo(lowercase);
+    }
+
+    private void assertMatches(PkbItemSearchCriteria criteria, PkbItemEntity... expected) {
+        assertThat(itemQueryRepository.search(criteria)).extracting(PkbItemRecord::itemId)
+                .containsExactlyInAnyOrder(java.util.Arrays.stream(expected)
+                        .map(PkbItemEntity::getPkbItemId).toArray(UUID[]::new));
+    }
+
+    private static PkbItemSearchCriteria criteria(
+            UUID userId, String entityType, String subtype, String status, String privacyScope) {
+        return new PkbItemSearchCriteria(
+                userId, entityType, subtype, status, null, null, null, privacyScope, null, 50, 0);
+    }
+
+    private PkbItemEntity createItem(
+            UUID userId, String entityType, String subtype, String status, String privacyScope, int hour) {
+        return commandService.handle(new CreatePkbItemCommand(
+                userId, entityType, subtype, status, Map.of("text", "Hydration"), "Manual",
+                UUID.randomUUID().toString(), Instant.parse("2026-10-18T00:00:00Z").plusSeconds(hour * 3600L),
+                null, null, null, null, List.of(), List.of(privacyScope), null, null,
+                new PkbProvenanceCommand("Manual", "User", null, null, null), "search-normalization"));
     }
 
     private static PkbItemEntity waterIntakeItem(UUID userId, Instant observedAt) {
