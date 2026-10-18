@@ -85,6 +85,13 @@ The E2E suite starts a temporary BioCompass auth introspection stub on `http://l
 | LOCAL-029 | Kafka outbox and idempotent consumer | `./gradlew test --tests 'com.biocompass.pkb.command.event.*' --tests 'com.biocompass.pkb.eventing.*' --no-daemon`                                                                        | A committed item write leaves an unpublished outbox event with the complete payload; once an enrichment workflow is installed, Kafka delivery invokes it only once for a repeated event ID. |
 | LOCAL-030 | Global source-identifier uniqueness | With the local service running, run `./gradlew e2eTest --no-daemon` and inspect `pg_indexes` for `uq_pkb_item_source`. | V7 creates a unique `(source_type, source_id)` index with `WHERE source_id IS NOT NULL` and removes `idx_pkb_item_source`. Existing HTTP creation/retry flows still return `202` and commit once; a different command with a duplicate source is a permanent consumer failure, not an upsert or synchronous HTTP conflict. |
 
+## Supersession verification (issue #53)
+
+- `./gradlew commandTest persistenceTest kafkaIngressTest --no-daemon`: both command forms serialize competing replacements under an owner-scoped row lock. Tests observe real PostgreSQL blocking, including a preloaded original entity. Exactly one replacement/provenance pair and its two transactional outbox events commit; the losing Kafka inbox marker rolls back. If the lock holder rolls back, the waiting command succeeds.
+- `PkbSupersessionMigrationTest`: fresh databases enforce unique non-null `supersedes`, allow nulls and independent chains, and replace the old non-unique index. A V5 database with duplicate replacements fails V6 without altering records; migration succeeds after explicit manual reconciliation.
+- Sequential supersession: submit two distinct command IDs to `POST /api/pkb/commands/items/{itemId}/supersessions?userId=<owner>` with valid replacement bodies. Both submissions may return `202`; only the first applies. The later command reaches DLT with `PKB item is already superseded`, without an inbox row, replacement, provenance, or domain events. Verify the original's `superseded_by` and replacement's `supersedes` are reciprocal through item lookup or PostgreSQL. Missing/foreign-owned targets fail without writes.
+- Migration recovery: use the conflict query in [Canonical schema](pkb_canonical_schema.md), reconcile the history manually, then restart to rerun Flyway. Never discard a conflicting record automatically.
+
 ## Feature Testcase Backlog
 
 Add concrete local service testcases here as features land:

@@ -21,9 +21,10 @@ public class PkbCommandItemResolver {
         }
     }
 
-    Optional<PkbItemEntity> findOptionalOwnedItem(UUID userId, UUID pkbItemId) {
+    Optional<PkbItemEntity> findOptionalOwnedItemForUpdate(UUID userId, UUID pkbItemId) {
         return pkbItemId == null
                 ? Optional.empty()
-                : itemDao.findByUserAndItemId(userId, pkbItemId);
+                : Optional.of(itemDao.findOwnedItemForUpdate(userId, pkbItemId)
+                        .orElseThrow(() -> new PkbCommandNotFoundException("PKB item", pkbItemId)));
     }
 }
