@@ -82,7 +82,8 @@ def registerFocusedTest = { String taskName, String taskDescription, List<String
 
 registerFocusedTest('commandTest', 'Runs PKB command domain and persistence tests.', [
         'com.biocompass.pkb.command.*',
-        'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest'
+        'com.biocompass.pkb.persistence.PkbCommandServiceIntegrationTest',
+        'com.biocompass.pkb.persistence.PkbSupersessionIntegrationTest'
 ])
 
 registerFocusedTest('commandApiTest', 'Runs PKB command HTTP API tests.', [

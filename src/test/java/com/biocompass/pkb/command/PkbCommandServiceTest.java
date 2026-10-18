@@ -28,6 +28,11 @@ import com.biocompass.pkb.persistence.entity.PkbItemEntity;
 import com.biocompass.pkb.persistence.entity.PkbRelationshipEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import com.biocompass.pkb.command.dto.SupersedePkbItemCommand;
+import com.biocompass.pkb.command.dto.PkbCommand;
+import static org.mockito.Mockito.never;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -243,6 +248,70 @@ class PkbCommandServiceTest {
                     assertThat(event.pkbItemId()).isEqualTo(itemId);
                     assertThat(event.correlationId()).isEqualTo("artifact-correlation");
                 });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void supersessionLocksOriginalBeforeSavingAndLinksBothItems(boolean explicitCommand) {
+        var userId = UUID.randomUUID();
+        var originalId = UUID.randomUUID();
+        var replacementId = UUID.randomUUID();
+        var original = PkbItemEntity.builder().pkbItemId(originalId).userId(userId).build();
+        when(itemDao.findOwnedItemForUpdate(userId, originalId)).thenReturn(Optional.of(original));
+        when(itemDao.saveWithProvenance(any(), any())).thenAnswer(invocation -> {
+            PkbItemEntity replacement = invocation.getArgument(0);
+            replacement.setPkbItemId(replacementId);
+            return replacement;
+        });
+
+        var replacement = commandService.handle(replacementCommand(userId, originalId, explicitCommand));
+
+        assertThat(replacement.getSupersedes()).isEqualTo(originalId);
+        assertThat(original.getSupersededBy()).isEqualTo(replacementId);
+        var order = org.mockito.Mockito.inOrder(itemDao);
+        order.verify(itemDao).findOwnedItemForUpdate(userId, originalId);
+        order.verify(itemDao).saveWithProvenance(any(), any());
+        order.verify(itemDao).save(original);
+        var events = ArgumentCaptor.forClass(PkbDomainEvent.class);
+        verify(eventPublisher, times(2)).publish(events.capture());
+        assertThat(events.getAllValues()).extracting(PkbDomainEvent::eventType)
+                .containsExactly(PkbDomainEventType.ITEM_SUPERSESSION_LINKED, PkbDomainEventType.ITEM_CREATED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void alreadySupersededItemDoesNotWriteOrPublish(boolean explicitCommand) {
+        var userId = UUID.randomUUID();
+        var originalId = UUID.randomUUID();
+        var original = PkbItemEntity.builder().pkbItemId(originalId).userId(userId)
+                .supersededBy(UUID.randomUUID()).build();
+        when(itemDao.findOwnedItemForUpdate(userId, originalId)).thenReturn(Optional.of(original));
+
+        assertThatThrownBy(() -> commandService.handle(replacementCommand(userId, originalId, explicitCommand)))
+                .isInstanceOf(PkbCommandValidationException.class).hasMessage("PKB item is already superseded");
+        verify(itemDao, never()).saveWithProvenance(any(), any());
+        verify(itemDao, never()).save(any());
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void missingOrForeignOwnedSupersessionTargetDoesNotWriteOrPublish(boolean explicitCommand) {
+        var userId = UUID.randomUUID();
+        var originalId = UUID.randomUUID();
+        when(itemDao.findOwnedItemForUpdate(userId, originalId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> commandService.handle(replacementCommand(userId, originalId, explicitCommand)))
+                .isInstanceOf(PkbCommandNotFoundException.class);
+        verify(itemDao, never()).saveWithProvenance(any(), any());
+        verify(itemDao, never()).save(any());
+        verifyNoInteractions(eventPublisher);
+    }
+
+    private static PkbCommand<PkbItemEntity> replacementCommand(UUID userId, UUID originalId, boolean explicit) {
+        var replacement = waterIntakeCommand(userId)
+                .withUserIdSupersedesAndCorrelationId(userId, originalId, "supersession");
+        return explicit ? new SupersedePkbItemCommand(userId, originalId, replacement, "supersession") : replacement;
     }
 
     private static CreatePkbItemCommand waterIntakeCommand(UUID userId) {

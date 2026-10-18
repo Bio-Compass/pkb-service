@@ -27,7 +27,7 @@ public class CreatePkbItemCommandHandler implements PkbCommandHandler<CreatePkbI
     @Override
     @Transactional
     public PkbItemEntity handle(CreatePkbItemCommand command) {
-        var supersededItem = itemResolver.findOptionalOwnedItem(command.userId(), command.supersedes())
+        var supersededItem = itemResolver.findOptionalOwnedItemForUpdate(command.userId(), command.supersedes())
                 .map(this::rejectAlreadySuperseded)
                 .orElse(null);
 
