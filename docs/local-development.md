@@ -93,6 +93,10 @@ After the Spring Boot scaffold is present, run the service with the local profil
 ```
 
 The packaged Spring configuration in `src/main/resources/application-local.yml` points the service at the local Compose dependencies.
+It also enables the PKB event relay. The relay reads committed records from the PostgreSQL outbox and
+publishes them to Kafka. The enrichment consumer is activated only when an enrichment workflow
+implementation is installed; set `PKB_EVENTING_ENABLED=false` to disable event publishing for a local
+debugging session.
 
 If you changed values in `.env`, export them before running Spring Boot because `docker compose --env-file .env` only applies them to Compose:
 
@@ -108,6 +112,17 @@ Verify the service health endpoint:
 ```sh
 curl -fsS http://localhost:8080/actuator/health
 ```
+
+After the service is running, verify its Kafka topics:
+
+```sh
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server kafka:29092 \
+  --list
+```
+
+The list includes `pkb.item.created`, `pkb.artifact.created`,
+`pkb.enrichment.requested`, and `pkb.enrichment.completed`.
 
 All non-actuator endpoints require a Bearer token that can be introspected by
 the BioCompass auth service. The local profile sends tokens to
@@ -187,6 +202,15 @@ MinIO, and OPA automatically. The Kafka failure tests boot the production
 listener and error handler against real Kafka and PostgreSQL and cover transient
 AU/database recovery, exhaustion, malformed JSON, DLT retention, idempotency,
 and replay. They do not require the Compose stack to be running.
+
+Run the eventing checks—including the broker-backed idempotent-consumer test—with:
+
+```sh
+./gradlew test \
+  --tests 'com.biocompass.pkb.command.event.*' \
+  --tests 'com.biocompass.pkb.eventing.*' \
+  --no-daemon
+```
 
 Use [Local Verification Testcases](local-verification-testcases.md) as the checklist for local service verification after code changes.
 
