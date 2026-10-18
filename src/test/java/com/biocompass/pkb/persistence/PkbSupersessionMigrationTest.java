@@ -32,7 +32,7 @@ class PkbSupersessionMigrationTest extends AbstractPostgresIntegrationTest {
     @Test
     void duplicateHistoryStopsMigrationWithoutChangingRecordsAndCanBeManuallyResolved() throws Exception {
         var url = newDatabase();
-        flyway(url, "4").migrate();
+        flyway(url, "5").migrate();
         var user = UUID.randomUUID();
         var original = UUID.randomUUID();
         var first = UUID.randomUUID();
@@ -48,7 +48,7 @@ class PkbSupersessionMigrationTest extends AbstractPostgresIntegrationTest {
             var result = statement.executeQuery("select count(*) from pkb_item where supersedes is not null");
             result.next();
             assertThat(result.getInt(1)).isEqualTo(2);
-            result = statement.executeQuery("select count(*) from flyway_schema_history where version='5'");
+            result = statement.executeQuery("select count(*) from flyway_schema_history where version='6'");
             result.next();
             assertThat(result.getInt(1)).isZero();
             // Simulate an explicit operator decision; the migration itself never chooses a winner.

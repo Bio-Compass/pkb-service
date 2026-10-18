@@ -5,6 +5,8 @@ import com.biocompass.pkb.command.*;
 import com.biocompass.pkb.command.dto.*;
 import com.biocompass.pkb.command.event.*;
 import com.biocompass.pkb.kafka.*;
+import com.biocompass.pkb.eventing.PkbOutboxEventEntity;
+import com.biocompass.pkb.eventing.PkbOutboxEventRepository;
 import com.biocompass.pkb.persistence.dao.PkbItemDao;
 import com.biocompass.pkb.persistence.entity.PkbItemEntity;
 import com.biocompass.pkb.persistence.repository.PkbProcessedCommandRepository;
@@ -44,8 +46,7 @@ class PkbSupersessionIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired EntityManager entityManager;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean PkbAuthorizationGateway authorization;
-    @MockitoBean PkbDomainEventPublisher publisher;
-    private final List<PkbDomainEvent> events = new CopyOnWriteArrayList<>();
+    @Autowired PkbOutboxEventRepository outbox;
 
     @BeforeEach
     void configureBoundaries() {
@@ -54,8 +55,6 @@ class PkbSupersessionIntegrationTest extends AbstractPostgresIntegrationTest {
             return new PkbAuthorizationDecision(true, "test:" + request.commandId(), "write",
                     request.resource().targetUserId(), Map.of());
         });
-        doAnswer(invocation -> { events.add(invocation.getArgument(0)); return null; })
-                .when(publisher).publish(any());
     }
 
     @ParameterizedTest
@@ -65,7 +64,7 @@ class PkbSupersessionIntegrationTest extends AbstractPostgresIntegrationTest {
             throws Exception {
         var user = UUID.randomUUID();
         var original = commands.handle(create(user));
-        events.clear();
+        jdbc.update("delete from pkb_outbox_event where user_id = ?", user);
         var first = message(replacement(user, original.getPkbItemId(), firstExplicit));
         var second = message(replacement(user, original.getPkbItemId(), secondExplicit));
         var cached = new CountDownLatch(1);
@@ -98,7 +97,7 @@ class PkbSupersessionIntegrationTest extends AbstractPostgresIntegrationTest {
                 await().atMost(Duration.ofSeconds(15)).untilAsserted(() ->
                         assertThat(jdbc.queryForObject("select ? = any(pg_blocking_pids(?))", Boolean.class,
                                 firstPid.get(), secondPid.get())).isTrue());
-                assertThat(events).isEmpty();
+                assertThat(eventsFor(user)).isEmpty();
             } finally {
                 releaseFirst.countDown();
             }
@@ -131,7 +130,7 @@ class PkbSupersessionIntegrationTest extends AbstractPostgresIntegrationTest {
         var original = commands.handle(create(user));
         var winner = message(replacement(user, original.getPkbItemId(), false));
         processor.process(winner);
-        events.clear();
+        var committedEvents = eventsFor(user);
         var loser = message(replacement(user, original.getPkbItemId(), true));
         assertThatThrownBy(() -> processor.process(loser)).isInstanceOf(PkbCommandValidationException.class)
                 .hasMessage("PKB item is already superseded");
@@ -142,8 +141,9 @@ class PkbSupersessionIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThatThrownBy(() -> processor.process(rejected)).isInstanceOf(PkbCommandNotFoundException.class);
             assertThat(inbox.existsById(rejected.commandId())).isFalse();
             assertThat(items.findAllByUser(foreignUser)).isEmpty();
+            assertThat(eventsFor(foreignUser)).isEmpty();
         }
-        assertThat(events).isEmpty();
+        assertThat(eventsFor(user)).containsExactlyInAnyOrderElementsOf(committedEvents);
         assertThat(items.findAllByUser(user)).hasSize(2);
     }
 
@@ -168,12 +168,22 @@ class PkbSupersessionIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(items.findProvenance(replacement.getPkbItemId())).hasSize(1);
         assertThat(jdbc.queryForObject("select count(*) from pkb_provenance p join pkb_item i "
                 + "on i.pkb_item_id = p.pkb_item_id where i.user_id = ?", Integer.class, user)).isEqualTo(2);
+        var events = eventsFor(user);
         assertThat(events).extracting(PkbDomainEvent::eventType)
-                .containsExactly(PkbDomainEventType.ITEM_SUPERSESSION_LINKED, PkbDomainEventType.ITEM_CREATED);
+                .containsExactlyInAnyOrder(PkbDomainEventType.ITEM_SUPERSESSION_LINKED, PkbDomainEventType.ITEM_CREATED);
         assertThat(events).allSatisfy(event -> assertThat(event.correlationId()).isEqualTo(correlation));
-        assertThat(events.getFirst().pkbItemId()).isEqualTo(originalId);
-        assertThat(events.getFirst().relatedPkbItemId()).isEqualTo(replacement.getPkbItemId());
-        assertThat(events.getLast().pkbItemId()).isEqualTo(replacement.getPkbItemId());
+        assertThat(events).filteredOn(event -> event.eventType() == PkbDomainEventType.ITEM_SUPERSESSION_LINKED)
+                .singleElement().satisfies(event -> {
+                    assertThat(event.pkbItemId()).isEqualTo(originalId);
+                    assertThat(event.relatedPkbItemId()).isEqualTo(replacement.getPkbItemId());
+                });
+        assertThat(events).filteredOn(event -> event.eventType() == PkbDomainEventType.ITEM_CREATED)
+                .singleElement().satisfies(event -> assertThat(event.pkbItemId()).isEqualTo(replacement.getPkbItemId()));
+    }
+
+    private List<PkbDomainEvent> eventsFor(UUID user) {
+        return outbox.findAll().stream().filter(event -> event.getUserId().equals(user))
+                .map(PkbOutboxEventEntity::toDomainEvent).toList();
     }
 
     private TransactionTemplate transaction() { return new TransactionTemplate(transactionManager); }
