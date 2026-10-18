@@ -6,6 +6,10 @@ Architecture of this service is described in [docs/biocompass_pkb_architecture.m
 
 The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb_implementation_plan.md).
 
+Before making PKB architectural decisions or changes, consult the central [Bio-Compass architecture documentation](https://github.com/Bio-Compass/bio-compass-architecture-docs). Start with its README, applicable accepted decisions in `docs/decisions/project-decision-log.md`, the service catalogue, and relevant standards. Accepted central decisions govern project-wide ownership and contracts; PKB code establishes implemented behavior. Local proposals do not supersede accepted central decisions.
+
+For every architectural change or decision, use `$biocompass-architecture-sync` when available. Otherwise, inspect and prepare or update the relevant central decision, standard, or catalogue as part of the same task. Preserve the actual accepted/proposed status, link to PKB-owned implementation details instead of copying them, and follow each repository's authorization and review rules. Link the companion documentation changes from the PKB issue or PR; a local link to existing guidance alone does not keep central documentation current.
+
 Read only the documentation relevant to the current change. Use the architecture document for cross-cutting design, the implementation plan for issue scope, and [docs/local-verification-testcases.md](docs/local-verification-testcases.md) when selecting or recording verification.
 
 ## Implementation Workflow
