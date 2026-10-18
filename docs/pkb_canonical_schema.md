@@ -31,7 +31,8 @@ derived facts, and other PKB entities.
 | `payload` | Canonical structured item body as JSONB. Stores domain-specific data that does not belong in the shared envelope. |
 | `source_type` | Kind of source that produced the item, such as manual entry, FHIR import, OCR, enrichment, or device sync. |
 | `source_id` | Optional source-system identifier for correlation, deduplication, and provenance tracing. |
-| `observed_at` | Time the represented fact or event was observed in the real world. |
+| `observed_at` | Time the represented fact or event was observed in the real world. Stored as a canonical instant. |
+| `observed_timezone` | Optional IANA time-zone identifier (for example `Europe/Amsterdam`) in which `observed_at` was recorded. Supplies the original local-time context and must not be used to reinterpret the stored instant. Only permitted when `observed_at` is present. |
 | `ingested_at` | Time the PKB service accepted the item into the canonical store. Defaults to insertion time. |
 | `valid_from` | Start of the time window during which the item should be considered valid. |
 | `valid_until` | End of the validity window. Must not be before `valid_from` when both are present. |
@@ -246,3 +247,28 @@ Important constraints and indexes:
 - Embeddings are cascade-deleted with their source item.
 - The HNSW cosine index supports approximate nearest-neighbor vector lookup.
 - The user index supports user-scoped semantic search.
+
+## `pkb_processed_command`
+
+Transactional Kafka inbox and command-audit record. Its insert and the
+canonical PKB write commit in the same PostgreSQL transaction.
+
+| Field | Responsibility |
+| --- | --- |
+| `command_id` | Immutable idempotency key supplied as `X-Command-Id`. |
+| `command_type` | Concrete canonical command type. |
+| `user_id` | Target user whose PKB was changed. |
+| `payload_hash` | SHA-256 of canonical command JSON. |
+| `producer_service` | Broker-authenticated producer identity recorded by the trusted HTTP adapter. |
+| `actor_id` / `actor_user_id` | Safe authenticated actor identifiers; no bearer token is stored. |
+| `purpose_of_use` | Purpose sent to AU for the write decision. |
+| `prior_decision_reference` | HTTP-time AU decision reference carried for correlation only. |
+| `applied_decision_reference` | Fresh consumer-time AU decision that authorized persistence. |
+| `correlation_id` | Calling workflow/request correlation identifier. |
+| `processed_at` | First successful processing time. |
+| `last_received_at` | Most recent exact delivery time. |
+| `delivery_count` | Number of exact deliveries observed. |
+
+Only a command with the same ID, type, target user, and canonical hash is an
+idempotent retry. Mismatched reuse is a permanent command failure and is routed
+to the Kafka DLT rather than being silently suppressed.

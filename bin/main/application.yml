@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: pkb-service
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+server:
+  port: 8080

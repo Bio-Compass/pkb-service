@@ -18,15 +18,21 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,7 +57,7 @@ class LocalInfrastructureContextTest {
 
     @Container
     static final GenericContainer<?> minio = new GenericContainer<>(
-            DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z"))
+            DockerImageName.parse("pgsty/minio:RELEASE.2026-08-04T00-00-00Z"))
             .withEnv("MINIO_ROOT_USER", "pkb-local-access")
             .withEnv("MINIO_ROOT_PASSWORD", "pkb-local-secret")
             .withCommand("server", "/data", "--console-address", ":9001")
@@ -67,12 +73,17 @@ class LocalInfrastructureContextTest {
     @Autowired
     private LocalInfrastructureProperties localInfrastructureProperties;
 
+    @Autowired
+    private S3Client s3Client;
+
     @DynamicPropertySource
     static void localInfrastructureProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        registry.add("biocompass.pkb.opa.base-url", () -> "http://localhost:8181");
+        registry.add("biocompass.pkb.opa.decision-path", () -> "/v1/data/biocompass/pkb/authz/decision");
         registry.add("biocompass.pkb.storage.endpoint", LocalInfrastructureContextTest::minioEndpoint);
         registry.add("biocompass.pkb.storage.region", () -> "eu-central-1");
         registry.add("biocompass.pkb.storage.bucket", () -> "pkb-local");
@@ -87,6 +98,9 @@ class LocalInfrastructureContextTest {
         assertThat(environment.getProperty("spring.datasource.url")).startsWith("jdbc:postgresql://");
         assertThat(environment.getProperty("spring.kafka.bootstrap-servers")).contains(":");
 
+        assertThat(localInfrastructureProperties.opa().baseUrl()).isEqualTo(URI.create("http://localhost:8181"));
+        assertThat(localInfrastructureProperties.opa().decisionPath())
+                .isEqualTo("/v1/data/biocompass/pkb/authz/decision");
         assertThat(localInfrastructureProperties.storage().endpoint()).isEqualTo(URI.create(minioEndpoint()));
         assertThat(localInfrastructureProperties.storage().bucket()).isEqualTo("pkb-local");
         assertThat(localInfrastructureProperties.storage().pathStyleAccessEnabled()).isTrue();
@@ -109,6 +123,25 @@ class LocalInfrastructureContextTest {
         }
 
         assertThat(get(minioEndpoint() + "/minio/health/ready").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void s3ClientCanCreateBucketAndObjectAgainstMinio() {
+        var bucket = "pkb-local-%s".formatted(UUID.randomUUID());
+        var userId = UUID.randomUUID();
+        var documentId = UUID.randomUUID();
+        var key = "users/%s/documents/%s/original".formatted(userId, documentId);
+        var content = "PKB artifact content";
+
+        s3Client.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
+        s3Client.putObject(
+                PutObjectRequest.builder().bucket(bucket).key(key).contentType("text/plain").build(),
+                RequestBody.fromString(content));
+
+        var head = s3Client.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build());
+
+        assertThat(head.contentLength()).isEqualTo(content.getBytes(StandardCharsets.UTF_8).length);
+        assertThat(head.contentType()).isEqualTo("text/plain");
     }
 
     private static String minioEndpoint() {

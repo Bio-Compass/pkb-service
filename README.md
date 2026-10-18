@@ -20,7 +20,7 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Start PostgreSQL, Kafka, and MinIO:
+Start PostgreSQL, Kafka, MinIO, and OPA:
 
 ```sh
 docker compose --env-file .env up -d
@@ -48,11 +48,19 @@ By default, the service listens on `http://localhost:8080` and uses these local 
 | Kafka | `localhost:9092` |
 | MinIO S3 API | `http://localhost:9000` |
 | MinIO Console | `http://localhost:9001` |
+| OPA | `http://localhost:8181` |
 
 Verify the service health endpoint:
 
 ```sh
 curl -fsS http://localhost:8080/actuator/health
+```
+
+The local profile enables the Kafka outbox relay. The enrichment consumer is activated only when an
+enrichment workflow implementation is installed. After startup, confirm the PKB topics were created with:
+
+```sh
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
 ```
 
 If you change values in `.env`, export them before running Spring Boot because `docker compose --env-file .env` only applies them to Compose:
@@ -72,6 +80,15 @@ set +a
 
 The tests use Testcontainers for infrastructure dependencies, so the Compose stack does not need to be running.
 Use [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as the service verification checklist after code changes.
+
+To run only the Kafka eventing tests:
+
+```sh
+./gradlew test \
+  --tests 'com.biocompass.pkb.command.event.*' \
+  --tests 'com.biocompass.pkb.eventing.*' \
+  --no-daemon
+```
 
 After a feature that affects startup, persistence, security, or HTTP behavior, keep the local service running and execute the black-box E2E suite:
 

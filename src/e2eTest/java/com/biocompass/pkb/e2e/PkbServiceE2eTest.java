@@ -2,6 +2,7 @@ package com.biocompass.pkb.e2e;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+import static org.awaitility.Awaitility.await;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 class PkbServiceE2eTest {
 
@@ -218,6 +220,49 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    void canonicalSearchFiltersHaveEquivalentCaseWhitespaceAndPaginationResults() throws Exception {
+        var older = SeedItem.observation(ownerUserId, "e2e-case-older", "hydration", "Hydration older", observed("08:00:00"));
+        var newer = SeedItem.observation(ownerUserId, "e2e-case-newer", "hydration", "Hydration newer", observed("09:00:00"));
+        var otherOwner = SeedItem.observation(otherUserId, "e2e-case-other-owner", "hydration", "Hydration other", observed("10:00:00"));
+        var otherSubtype = SeedItem.observation(ownerUserId, "e2e-case-other-subtype", "symptom", "Hydration symptom", observed("11:00:00"));
+        var otherStatus = SeedItem.observation(ownerUserId, "e2e-case-other-status", "hydration", "Hydration archived", observed("12:00:00"))
+                .withStatus("archived");
+        var otherPrivacy = SeedItem.observation(ownerUserId, "e2e-case-other-privacy", "hydration", "Hydration restricted", observed("13:00:00"))
+                .withPrivacyScope(List.of("restricted"));
+        insertItems(older, newer, otherOwner, otherSubtype, otherStatus, otherPrivacy);
+
+        List<Map<String, String>> variants = List.of(
+                Map.of("entityType", "observation", "subtype", "hydration", "status", "active", "privacyScope", "health"),
+                Map.of("entityType", "Observation", "subtype", "HYDRATION", "status", "ACTIVE", "privacyScope", "HeAlTh"),
+                Map.of("entityType", " \u2003Observation\u2003 ", "subtype", " HYDRATION ", "status", " ACTIVE ", "privacyScope", " Health "));
+        List<Map<String, Object>> baseline = null;
+        for (var variant : variants) {
+            var filters = new java.util.HashMap<>(variant);
+            filters.put("userId", ownerUserId.toString());
+            filters.put("text", "HYDRATION");
+            var response = get(path("/api/pkb/items", filters), ownerUserId);
+            assertThat(response.statusCode()).isEqualTo(200);
+            var items = response.jsonArray();
+            assertThat(items).extracting(item -> item.get("sourceId"))
+                    .containsExactly("e2e-case-newer", "e2e-case-older");
+            assertThat(items).allSatisfy(item -> assertThat(item.get("userId")).isEqualTo(ownerUserId.toString()));
+            if (baseline == null) {
+                baseline = items;
+            }
+            assertThat(items).isEqualTo(baseline);
+
+            filters.put("limit", "1");
+            for (int offset = 0; offset < 3; offset++) {
+                filters.put("offset", Integer.toString(offset));
+                var page = get(path("/api/pkb/items", filters), ownerUserId);
+                assertThat(page.statusCode()).isEqualTo(200);
+                assertThat(page.jsonArray()).isEqualTo(items.subList(Math.min(offset, 2), Math.min(offset + 1, 2)));
+            }
+            assertThat(get(path("/api/pkb/items", filters), otherUserId).statusCode()).isEqualTo(403);
+        }
+    }
+
+    @Test
     void searchesByValidityWindowAndReturnsEmptyResultWhenNoItemsMatch() throws Exception {
         var currentlyValid = SeedItem.observation(ownerUserId, "e2e-valid-current", "hydration", "Current", observed("10:00:00"))
                 .withValidity(observed("09:00:00"), observed("11:00:00"));
@@ -253,6 +298,66 @@ class PkbServiceE2eTest {
         assertThat(get(itemsPath(ownerUserId) + "&offset=-1", ownerUserId).statusCode()).isEqualTo(400);
         assertThat(get(itemsPath(ownerUserId) + "&observedFrom=not-a-date", ownerUserId).statusCode()).isEqualTo(400);
         assertThat(get("/api/pkb/items/not-a-uuid?userId=" + ownerUserId, ownerUserId).statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void acceptsKafkaWriteCommandAndAppliesItOnlyOnceWhenRetried() throws Exception {
+        var commandId = UUID.randomUUID();
+        var sourceId = "e2e-kafka-command-" + commandId;
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "entityType", "observation",
+                "subtype", "note",
+                "status", "active",
+                "payload", Map.of("text", "Kafka command ingress"),
+                "sourceType", "e2e",
+                "sourceId", sourceId,
+                "observedAt", "2026-06-20T10:15:00+02:00",
+                "observedTimezone", "Europe/Amsterdam",
+                "provenance", Map.of("sourceKind", "e2e")
+        ));
+
+        var accepted = postWithBearer(
+                "/api/pkb/commands/items?userId=" + ownerUserId,
+                tokenFor(ownerUserId, false),
+                commandId,
+                payload
+        );
+
+        assertThat(accepted.statusCode()).isEqualTo(HttpStatus.ACCEPTED.value());
+        assertThat(accepted.jsonObject())
+                .containsEntry("commandId", commandId.toString())
+                .containsEntry("status", "accepted");
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            assertThat(itemCount(ownerUserId, sourceId)).isEqualTo(1);
+            assertThat(processedCommandCount(commandId)).isEqualTo(1);
+        });
+        int initialDeliveryCount = processedCommandDeliveryCount(commandId);
+        assertThat(initialDeliveryCount).isPositive();
+
+        var search = get(itemsPath(ownerUserId), ownerUserId);
+        assertThat(search.statusCode()).isEqualTo(200);
+        var itemId = search.jsonArray().getFirst().get("itemId");
+        assertThat(search.jsonArray()).singleElement().satisfies(item -> {
+            assertThat(item.get("observedTimezone")).isEqualTo("Europe/Amsterdam");
+            assertThat(OffsetDateTime.parse(item.get("observedAt").toString()).toInstant())
+                    .isEqualTo(OffsetDateTime.parse("2026-06-20T08:15:00Z").toInstant());
+        });
+        var lookup = get("/api/pkb/items/" + itemId + "?userId=" + ownerUserId, ownerUserId);
+        assertThat(lookup.statusCode()).isEqualTo(200);
+        assertThat(lookup.jsonObject()).containsEntry("observedTimezone", "Europe/Amsterdam");
+
+        var retried = postWithBearer(
+                "/api/pkb/commands/items?userId=" + ownerUserId,
+                tokenFor(ownerUserId, false),
+                commandId,
+                payload
+        );
+
+        assertThat(retried.statusCode()).isEqualTo(HttpStatus.ACCEPTED.value());
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(processedCommandDeliveryCount(commandId)).isGreaterThan(initialDeliveryCount));
+        assertThat(itemCount(ownerUserId, sourceId)).isEqualTo(1);
+        assertThat(processedCommandCount(commandId)).isEqualTo(1);
     }
 
     private static void waitForHealthyService() throws InterruptedException {
@@ -310,6 +415,23 @@ class PkbServiceE2eTest {
         }
 
         var response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        return new HttpResult(response.statusCode(), response.body());
+    }
+
+    private static HttpResult postWithBearer(
+            String path,
+            String bearerToken,
+            UUID commandId,
+            String payload
+    ) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + bearerToken)
+                .header("X-Command-Id", commandId.toString())
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload))
+                .build();
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         return new HttpResult(response.statusCode(), response.body());
     }
 
@@ -451,6 +573,52 @@ class PkbServiceE2eTest {
             statement.setObject(16, item.createdAt());
             statement.setObject(17, item.updatedAt());
             statement.executeUpdate();
+        }
+    }
+
+    private static int itemCount(UUID userId, String sourceId) throws SQLException {
+        try (var connection = connection();
+             var statement = connection.prepareStatement("""
+                     SELECT count(*)
+                     FROM pkb_item
+                     WHERE user_id = ?
+                       AND source_id = ?
+                     """)) {
+            statement.setObject(1, userId);
+            statement.setString(2, sourceId);
+            try (var resultSet = statement.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
+        }
+    }
+
+    private static int processedCommandCount(UUID commandId) throws SQLException {
+        try (var connection = connection();
+             var statement = connection.prepareStatement("""
+                     SELECT count(*)
+                     FROM pkb_processed_command
+                     WHERE command_id = ?
+                     """)) {
+            statement.setObject(1, commandId);
+            try (var resultSet = statement.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
+        }
+    }
+
+    private static int processedCommandDeliveryCount(UUID commandId) throws SQLException {
+        try (var connection = connection();
+             var statement = connection.prepareStatement("""
+                     SELECT delivery_count
+                     FROM pkb_processed_command
+                     WHERE command_id = ?
+                     """)) {
+            statement.setObject(1, commandId);
+            try (var resultSet = statement.executeQuery()) {
+                return resultSet.next() ? resultSet.getInt(1) : 0;
+            }
         }
     }
 

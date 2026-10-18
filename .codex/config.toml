@@ -1,0 +1,50 @@
+# PKB-specific defaults. This file applies only when Codex runs in this repository.
+model_reasoning_effort = "medium"
+
+[plugins."notion@openai-curated"]
+enabled = false
+
+[plugins."documents@openai-primary-runtime"]
+enabled = false
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = false
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = false
+
+[plugins."gmail@openai-curated"]
+enabled = false
+
+[plugins."google-drive@openai-curated"]
+enabled = false
+
+[plugins."zoom@openai-curated"]
+enabled = false
+
+[plugins."binance@openai-curated"]
+enabled = false
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = false
+
+[plugins."template-creator@openai-primary-runtime"]
+enabled = false
+
+[plugins."visualize@openai-bundled"]
+enabled = false
+
+[plugins."browser@openai-bundled"]
+enabled = false
+
+[plugins."sites@openai-bundled"]
+enabled = false
+
+[plugins."chrome@openai-bundled"]
+enabled = false
+
+[mcp_servers.github]
+enabled = false
+
+[mcp_servers.node_repl]
+enabled = false

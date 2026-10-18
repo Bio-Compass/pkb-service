@@ -93,6 +93,7 @@ class PkbCommandServiceIntegrationTest extends AbstractPostgresIntegrationTest {
                 null,
                 null,
                 null,
+                null,
                 new PkbProvenanceCommand("manual", null, null, null, null),
                 "invalid-create"
         );
@@ -133,6 +134,41 @@ class PkbCommandServiceIntegrationTest extends AbstractPostgresIntegrationTest {
                     assertThat(event.userId()).isEqualTo(userId);
                     assertThat(event.pkbItemId()).isEqualTo(savedItem.getPkbItemId());
                     assertThat(event.correlationId()).isEqualTo("integration-create");
+                });
+    }
+
+    @Test
+    void createItemPersistsObservedTimezoneWhenProvided() {
+        var userId = UUID.randomUUID();
+        var command = new CreatePkbItemCommand(
+                userId,
+                "Observation",
+                "Heart_Rate",
+                "Active",
+                new LinkedHashMap<>(Map.of("value", 72)),
+                "Device",
+                "device-1",
+                Instant.parse("2026-06-20T08:15:00Z"),
+                "Europe/Amsterdam",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new PkbProvenanceCommand("Device_Sync", "System", "workflow-tz", "device-1", "ble-heart-rate-v1"),
+                "integration-timezone"
+        );
+
+        var savedItem = commandService.handle(command);
+
+        assertThat(itemDao.findByUserAndItemId(userId, savedItem.getPkbItemId()))
+                .isPresent()
+                .get()
+                .satisfies(item -> {
+                    assertThat(item.getObservedAt()).isEqualTo(Instant.parse("2026-06-20T08:15:00Z"));
+                    assertThat(item.getObservedTimezone()).isEqualTo("Europe/Amsterdam");
                 });
     }
 
@@ -330,6 +366,7 @@ class PkbCommandServiceIntegrationTest extends AbstractPostgresIntegrationTest {
                 "HealthKit",
                 sourceId,
                 observedAt,
+                null,
                 observedAt,
                 observedAt,
                 null,
@@ -362,6 +399,7 @@ class PkbCommandServiceIntegrationTest extends AbstractPostgresIntegrationTest {
                 "Derived",
                 "relationship-target",
                 Instant.parse("2026-06-20T23:59:59Z"),
+                null,
                 Instant.parse("2026-06-20T00:00:00Z"),
                 Instant.parse("2026-06-20T23:59:59Z"),
                 null,

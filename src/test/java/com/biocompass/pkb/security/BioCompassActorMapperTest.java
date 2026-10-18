@@ -31,7 +31,9 @@ class BioCompassActorMapperTest {
                         "email", "user@example.com",
                         "email_verified", true,
                         "is_staff", true,
-                        "roles", List.of("staff")
+                        "roles", List.of("staff"),
+                        "scopes", List.of("pkb:write"),
+                        "purpose_of_use", "care"
                 ),
                 List.of()
         );
@@ -43,6 +45,8 @@ class BioCompassActorMapperTest {
         assertThat(actor.emailVerified()).isTrue();
         assertThat(actor.staff()).isTrue();
         assertThat(actor.roles()).containsExactly("staff");
+        assertThat(actor.scopes()).containsExactly("pkb:write");
+        assertThat(actor.purposeOfUse()).isEqualTo("care");
     }
 
     @Test

@@ -6,12 +6,19 @@ Architecture of this service is described in [docs/biocompass_pkb_architecture.m
 
 The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb_implementation_plan.md).
 
+Before making PKB architectural decisions or changes, consult the central [Bio-Compass architecture documentation](https://github.com/Bio-Compass/bio-compass-architecture-docs). Start with its README, applicable accepted decisions in `docs/decisions/project-decision-log.md`, the service catalogue, and relevant standards. Accepted central decisions govern project-wide ownership and contracts; PKB code establishes implemented behavior. Local proposals do not supersede accepted central decisions.
+
+For every architectural change or decision, use `$biocompass-architecture-sync` when available. Otherwise, inspect and prepare or update the relevant central decision, standard, or catalogue as part of the same task. Preserve the actual accepted/proposed status, link to PKB-owned implementation details instead of copying them, and follow each repository's authorization and review rules. Link the companion documentation changes from the PKB issue or PR; a local link to existing guidance alone does not keep central documentation current.
+
+Read only the documentation relevant to the current change. Use the architecture document for cross-cutting design, the implementation plan for issue scope, and [docs/local-verification-testcases.md](docs/local-verification-testcases.md) when selecting or recording verification.
+
 ## Implementation Workflow
 
 - Implement each GitHub issue on its own separate branch.
 - Include the GitHub issue number in the branch name.
 - Link the branch or PR back to the corresponding GitHub issue.
 - Keep implementation scoped to the current issue unless the user explicitly expands scope.
+- Do not add speculative production code, placeholder implementations, or extension points without a current runtime caller or concrete requirement. Defer them until the dependent client or workflow exists.
 - Deploy only after the diff has been manually reviewed and approved.
 
 ## Worktree Workflow
@@ -41,7 +48,7 @@ The implementation plan is tracked in [docs/pkb_implementation_plan.md](docs/pkb
 - Every implementation step should be runnable or testable locally.
 - Run the relevant Gradle tests for the step before finalizing.
 - When a service change affects startup or HTTP behavior, run the service locally and verify the relevant endpoint.
-- After each code change, consult and update [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as needed.
+- Before finalizing a behavior change, consult and update [docs/local-verification-testcases.md](docs/local-verification-testcases.md) as needed.
 - Track new or changed service behavior as testcases before finalizing the change.
 
 ## Testing

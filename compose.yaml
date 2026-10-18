@@ -47,7 +47,7 @@ services:
       start_period: 20s
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${PKB_MINIO_ROOT_USER:-pkb-local-access}
@@ -63,6 +63,25 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  opa:
+    image: openpolicyagent/opa:1.16.2
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-level=debug
+      - /policies
+    ports:
+      - "${PKB_OPA_PORT:-8181}:8181"
+    volumes:
+      - ./infra/local/opa/policies:/policies:ro
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "true"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
 volumes:
   postgres-data:
