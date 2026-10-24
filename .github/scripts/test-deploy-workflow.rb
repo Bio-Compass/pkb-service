@@ -28,4 +28,5 @@ text = File.read("#{root}/workflows/deploy-environment.yml")
 check(text.include?('--suppress-secrets'), 'Plan must suppress credential values')
 check(text.include?('sh helm-source/scripts/deploy.sh'), 'Use the Helm-owned deployment mechanism')
 check(!text.include?('secrets.stringData'), 'Never override existing namespace secrets')
+check(text.include?('version: v4.3.1'), 'Shared rollback-on-failure deployment requires Helm 4')
 puts 'CI testing/E2E/production promotion checks passed.'

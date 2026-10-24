@@ -74,7 +74,7 @@ For registry images, build and push with `-PcontainerImage=<registry>/pkb-servic
 
 ## GitHub Actions: testing before production
 
-Tracked by [PKB #66](https://github.com/Bio-Compass/pkb-service/issues/66). The CI workflow builds the application once after Gradle and local-service E2E pass. It records the pushed image digest and the resolved Helm repository commit. Both environment deployments use that same `tag@sha256:digest` and Helm commit; production never rebuilds the image or re-resolves mutable Helm `main`.
+Tracked by [PKB #66](https://github.com/Bio-Compass/pkb-service/issues/66). The CI workflow builds the application once after Gradle and local-service E2E pass. It records the pushed image digest and the resolved Helm repository commit. Planning/linting use pinned Helm 3 for the existing Helm diff plugin; applying uses Helm 4.3.1 because Helm-owned rollout machinery requires `--rollback-on-failure`. Both environment deployments use that same `tag@sha256:digest` and Helm commit; production never rebuilds the image or re-resolves mutable Helm `main`.
 
 The job sequence is:
 

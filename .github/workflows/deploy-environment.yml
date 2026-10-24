@@ -110,6 +110,10 @@ jobs:
           helm-revision: ${{ inputs.helm-revision }}
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
           helm-ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
+      - name: Set up Helm for shared rollout machinery
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.3.1
       - name: Deploy through Helm-owned mechanism
         env:
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
