@@ -1,0 +1,138 @@
+name: Deploy PKB environment
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      image-ref:
+        type: string
+        required: true
+      helm-revision:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  plan:
+    name: Review ${{ inputs.environment }} diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    env:
+      KUBECONFIG: /home/runner/.kube/pkb-ci-config
+    outputs:
+      requires-approval: ${{ steps.classify.outputs.requires-approval }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/prepare-deploy
+        with:
+          environment: ${{ inputs.environment }}
+          image-ref: ${{ inputs.image-ref }}
+          helm-revision: ${{ inputs.helm-revision }}
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+          helm-ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
+      - name: Install Helm diff
+        run: helm plugin install https://github.com/databus23/helm-diff --version v3.13.2
+      - name: Plan environment change
+        id: diff
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_REF: ${{ inputs.image-ref }}
+        run: |
+          set +e
+          helm diff upgrade pkb-service helm-source/charts/pkb-service \
+            --namespace "${TARGET_ENVIRONMENT}" \
+            --values "helm-source/values/${TARGET_ENVIRONMENT}/pkb-service.yaml" \
+            --set-string "image.tag=${IMAGE_REF}" --set-string 'image.digest=' \
+            --install --allow-unreleased --detailed-exitcode --no-color --suppress-secrets > helm-diff.txt
+          status=$?
+          set -e
+          [[ "${status}" == 0 || "${status}" == 2 ]]
+          cat helm-diff.txt
+          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+      - name: Classify environment diff
+        id: classify
+        run: bash .github/scripts/classify-deploy-change.sh --helm-diff helm-diff.txt --diff-status '${{ steps.diff.outputs.status }}' --output-dir .
+      - name: Record promotion provenance
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_REF: ${{ inputs.image-ref }}
+          HELM_REVISION: ${{ inputs.helm-revision }}
+        run: |
+          echo "Environment: ${TARGET_ENVIRONMENT}; image: ${IMAGE_REF}; Helm: ${HELM_REVISION}" >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-review-${{ inputs.environment }}
+          path: |
+            helm-diff.txt
+            non-image-diff.txt
+            manual-approval-review.md
+          retention-days: 14
+      - name: Remove Kubernetes credentials
+        if: always()
+        run: rm -f "${KUBECONFIG}"
+  approve:
+    name: Approve ${{ inputs.environment }} deployment
+    needs: plan
+    if: inputs.environment == 'prod' || needs.plan.outputs.requires-approval == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: ${{ inputs.environment }}-manual-approval
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Require protected approval environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVAL_ENVIRONMENT: ${{ inputs.environment }}-manual-approval
+        run: |
+          reviewers="$(gh api "repos/${GITHUB_REPOSITORY}/environments/${APPROVAL_ENVIRONMENT}" --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')"
+          test "${reviewers}" -gt 0
+  deploy:
+    name: Apply ${{ inputs.environment }} deployment
+    needs: [plan, approve]
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      (needs.approve.result == 'success' ||
+      (inputs.environment == 'testing' && needs.plan.outputs.requires-approval == 'false' && needs.approve.result == 'skipped'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    env:
+      KUBECONFIG: /home/runner/.kube/pkb-ci-config
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/prepare-deploy
+        with:
+          environment: ${{ inputs.environment }}
+          image-ref: ${{ inputs.image-ref }}
+          helm-revision: ${{ inputs.helm-revision }}
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+          helm-ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
+      - name: Deploy through Helm-owned mechanism
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_REF: ${{ inputs.image-ref }}
+          NAMESPACE: ${{ inputs.environment }}
+          DEPLOY_SOURCE: local
+        run: sh helm-source/scripts/deploy.sh "${TARGET_ENVIRONMENT}" pkb-service "${IMAGE_REF}"
+      - name: Verify deployed image
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_REF: ${{ inputs.image-ref }}
+        run: |
+          actual="$(kubectl -n "${TARGET_ENVIRONMENT}" get deployment pkb-service -o jsonpath='{.spec.template.spec.containers[?(@.name=="pkb-service")].image}')"
+          test "${actual}" = "ghcr.io/bio-compass/pkb-service:${IMAGE_REF}"
+      - name: Verify deployed health
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          kubectl -n "${TARGET_ENVIRONMENT}" port-forward --address 127.0.0.1 service/pkb-service 18082:80 > "${RUNNER_TEMP}/health-forward.log" 2>&1 &
+          forward_pid=$!
+          trap 'kill "${forward_pid}" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 20 --retry-connrefused --retry-delay 1 --max-time 10 \
+            http://127.0.0.1:18082/actuator/health/readiness | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "UP"'
+      - name: Remove Kubernetes credentials
+        if: always()
+        run: rm -f "${KUBECONFIG}"

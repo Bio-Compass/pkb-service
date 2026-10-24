@@ -91,7 +91,7 @@ if [ "${requires_approval}" = "true" ]; then
   {
     echo "### Manual approval review"
     echo
-    echo "Review this before approving the dev-manual-approval environment."
+    echo "Review this before approving the environment-specific manual approval gate."
     echo
     echo "- Helm diff requires approval: ${helm_requires_approval}"
     echo

@@ -15,7 +15,7 @@ Use this file as the living checklist for local verification. Update it when a c
 | AUTO-001 | Full Gradle test suite        | `./gradlew test --no-daemon`                                                                                                                  | Build succeeds and all tests pass.                                                                                                                                            |
 | AUTO-002 | Qodana static-analysis report | `qodana scan --save-report --results-dir .qodana/results`                                                                                     | Command exits successfully and writes `.qodana/results/qodana.sarif.json` plus `.qodana/results/report/index.html`.                                                           |
 | AUTO-003 | PKB command module tests      | `./gradlew commandTest --no-daemon` | Command DTO validation, metadata normalization, transactional writes, supersession, relationship creation, artifact association, and after-commit domain event behavior pass. |
-| AUTO-004 | CI deployment scripts         | `./gradlew testCiScripts --no-daemon`                                                                                                         | Classifier allows image-only Helm diffs without approval regardless of changed source files, requires approval for non-image Helm and suppressed Secret changes, writes a manual approval review with the full Helm diff, and verifies all Helm paths inject database and S3 credentials from GitHub Secrets using temporary files. |
+| AUTO-004 | CI deployment scripts | `./gradlew testCiScripts --no-daemon` | Classifier requires review for non-image changes; workflow checks ensure testing deploy precedes real deployed E2E, production depends on E2E success, both use one image digest/Helm commit, and production always requires manual approval. E2E prerequisites fail closed. |
 | AUTO-005 | PKB artifact storage integration tests | `./gradlew artifactStorageTest --no-daemon` | Deterministic object-key generation, artifact registration validation, object-reference persistence, artifact provenance, consent binding, and enrichment event behavior pass. |
 | AUTO-006 | Local service E2E suite       | With local dependencies and the service running, execute `./gradlew e2eTest --no-daemon`                                                       | Black-box HTTP verification passes against the running local service, seeded PostgreSQL data, temporary BioCompass auth introspection stub, local AU decision endpoint, and Kafka consumer. |
 | AUTO-007 | Kafka command ingress tests   | `./gradlew kafkaIngressTest --no-daemon` | Real Kafka/PostgreSQL tests cover broker-acknowledged JSON submission, fresh AU enforcement, exact deduplication, mismatch detection, transient AU/database retry, immediate permanent-AU failure handling, exhaustion and malformed input to DLT, partition progress, and replay. |
@@ -119,3 +119,15 @@ Add concrete local service testcases here as features land:
 - Item create/update/delete HTTP flows.
 - Artifact object upload/download HTTP flows after metadata registration.
 - FHIR mapping and resource retrieval behavior.
+
+## Testing-to-production promotion (#66)
+
+| ID | Check | Expected result |
+| --- | --- | --- |
+| CI-001 | `./gradlew testCiScripts --no-daemon` | Workflow dependency/immutable artifact checks and E2E failure-path tests pass. |
+| CI-002 | Run `.github/scripts/deployed-e2e.py` through the testing namespace port forwards, with dedicated BAS credentials | Real login, scoped PKB reads, input validation, missing-item and auth-denial assertions pass; no SQL/stub/production fixtures are used. |
+| CI-003 | Failed/skipped/cancelled `e2e-testing` | `deploy-prod` never runs. Missing testing secrets and BAS introspection errors are failures, not skips. |
+| CI-004 | Successful test gate and production promotion review | Production uses exactly the testing image digest and pinned Helm revision, waits for manual approval, then verifies rollout/image/readiness. |
+| CI-005 | Namespace credentials | Testing/prod credentials can deploy and port-forward only in their own namespace; legacy `bio-compass` credentials fail preflight. |
+
+See the [deployment guide](kubernetes-vm-deployment.md#github-actions-testing-before-production) for prerequisites, current runtime blockers, and the companion proposed architecture patch.
