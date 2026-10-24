@@ -38,13 +38,20 @@ public record PkbAuthorizationRequest(
             @JsonProperty("source_type") String sourceType,
             @JsonProperty("consent_scope") List<String> consentScope,
             @JsonProperty("privacy_scope") List<String> privacyScope,
-            Map<String, UUID> identifiers
+            Map<String, UUID> identifiers,
+            Map<String, String> attributes
     ) {
 
         public Resource {
             consentScope = consentScope == null ? List.of() : List.copyOf(consentScope);
             privacyScope = privacyScope == null ? List.of() : List.copyOf(privacyScope);
             identifiers = identifiers == null ? Map.of() : Map.copyOf(identifiers);
+            attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
+        }
+
+        public Resource(UUID userId, String commandType, String sourceType, List<String> consentScope,
+                        List<String> privacyScope, Map<String, UUID> identifiers) {
+            this(userId, commandType, sourceType, consentScope, privacyScope, identifiers, Map.of());
         }
     }
 }

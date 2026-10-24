@@ -16,6 +16,40 @@ allowed_purposes := {"care", "self", "operations", "development"}
 allowed_owner_actions := {"read", "write", "search"}
 cross_user_read_actions := {"read", "search"}
 
+# Disposable AU contract fixture only; this is not a production policy deployment.
+source_record_permissions := {
+    "create": "hydration:intake:create",
+    "read": "hydration:intake:read",
+    "aggregate": "hydration:summary:read",
+    "delete": "hydration:intake:delete",
+}
+
+allow if {
+    input.resource.command_type == "source_record"
+    input.producer_service == "biocompass-watertracker-service"
+    input.resource.attributes.source_system == input.producer_service
+    input.actor.user_id == input.resource.target_user_id
+    input.actor.purpose_of_use == "self"
+    input.actor.scopes[_] == source_record_permissions[input.action]
+    input.resource.attributes.entity_type == "nutrition_intake"
+    input.resource.attributes.subtype == "water"
+    not restricted_resource
+    count(input.resource.consent_scope) == 0
+}
+
+# Authorized blind deletion reveals neither ownership nor existence of a target.
+allow if {
+    input.resource.command_type == "source_record"
+    input.producer_service == "biocompass-watertracker-service"
+    input.resource.attributes.source_system == input.producer_service
+    input.actor.user_id == input.resource.target_user_id
+    input.actor.purpose_of_use == "self"
+    input.action == "delete"
+    input.actor.scopes[_] == "hydration:intake:delete"
+    input.resource.attributes.entity_type == ""
+    input.resource.attributes.subtype == ""
+}
+
 allow if {
     input.actor.roles[_] == "pkb_admin"
 }

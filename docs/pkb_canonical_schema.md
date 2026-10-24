@@ -272,3 +272,22 @@ canonical PKB write commit in the same PostgreSQL transaction.
 Only a command with the same ID, type, target user, and canonical hash is an
 idempotent retry. Mismatched reuse is a permanent command failure and is routed
 to the Kafka DLT rather than being silently suppressed.
+
+## Source-record extension (V6, issue #62)
+
+The additive V6 migration introduces nullable `source_system`, `source_record_id`,
+`recorded_at` and `deleted_at`. Existing items remain readable without these fields.
+A producer/source-record pair is either fully absent or nonblank, and unique when present.
+It identifies the producing system and its record, independently of `source_type` acquisition
+method and the older `source_id` field; V6 does not reinterpret historical source metadata.
+Producer records preserve observed and source-recorded instants separately from ingestion.
+The JSONB numeric `amount` and UCUM `mL` constraint applies to producer water-intake facts,
+not to documents or all producer records. Shared source fields do not imply a quantity.
+
+`pkb_item_idempotency` retains `(producer,user_id,idempotency_key)`, fingerprint and a unique
+owned item reference. The same canonical item is the only fact store. Soft deletion synchronizes
+status/deleted_at and preserves the key. Explicit bounded purge cascades key/provenance removal,
+cleans event state transactionally and refuses externally referenced items.
+
+See [record API and lifecycle](pkb_record_api.md) for replay equivalence, active filtering,
+query limits, original source times, governance checks and transition behavior.
