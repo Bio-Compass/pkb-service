@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${PKB_POSTGRES_USER:-pkb}
       POSTGRES_PASSWORD: ${PKB_POSTGRES_PASSWORD:-pkb-local-password}
     ports:
-      - "${PKB_POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${PKB_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -38,7 +38,7 @@ services:
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
     ports:
-      - "${PKB_KAFKA_PORT:-9092}:9092"
+      - "127.0.0.1:${PKB_KAFKA_PORT:-9092}:9092"
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1"]
       interval: 10s
@@ -53,8 +53,8 @@ services:
       MINIO_ROOT_USER: ${PKB_MINIO_ROOT_USER:-pkb-local-access}
       MINIO_ROOT_PASSWORD: ${PKB_MINIO_ROOT_PASSWORD:-pkb-local-secret}
     ports:
-      - "${PKB_MINIO_API_PORT:-9000}:9000"
-      - "${PKB_MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${PKB_MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${PKB_MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -73,7 +73,7 @@ services:
       - --log-level=debug
       - /policies
     ports:
-      - "${PKB_OPA_PORT:-8181}:8181"
+      - "127.0.0.1:${PKB_OPA_PORT:-8181}:8181"
     volumes:
       - ./infra/local/opa/policies:/policies:ro
     healthcheck:

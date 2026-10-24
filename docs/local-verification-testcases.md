@@ -92,6 +92,26 @@ The E2E suite starts a temporary BioCompass auth introspection stub on `http://l
 - Sequential supersession: submit two distinct command IDs to `POST /api/pkb/commands/items/{itemId}/supersessions?userId=<owner>` with valid replacement bodies. Both submissions may return `202`; only the first applies. The later command reaches DLT with `PKB item is already superseded`, without an inbox row, replacement, provenance, or domain events. Verify the original's `superseded_by` and replacement's `supersedes` are reciprocal through item lookup or PostgreSQL. Missing/foreign-owned targets fail without writes.
 - Migration recovery: use the conflict query in [Canonical schema](pkb_canonical_schema.md), reconcile the history manually, then restart to rerun Flyway. Never discard a conflicting record automatically.
 
+## Local Dependency Network Bindings (#55)
+
+- On native Linux, check `docker version --format '{{.Server.Version}}'`.
+  Require Engine 28.0.0 or later, or separately verified network restrictions
+  blocking off-host access; older engines have a same-network loopback exposure
+  caveat. Docker Desktop is not affected by that native-Linux issue. See
+  [Local Network Access](local-development.md#local-network-access).
+- Run `./gradlew test --tests 'com.biocompass.pkb.infrastructure.LocalComposePortsTest' --no-daemon`.
+  The resolved PostgreSQL, Kafka, MinIO API/console, and OPA publications must all
+  specify `127.0.0.1`, with both default and overridden port numbers. Missing,
+  wildcard, and non-loopback bindings must fail the check. Docker CLI and Compose
+  v2 are required; a running daemon is not required for this configuration check.
+- Start the local stack and inspect `docker compose ps --format json` and
+  `docker compose port <service> <container-port>` for all five published ports.
+  Each effective host binding must be `127.0.0.1:<configured-port>`.
+- Verify the dependency checks above, service health, and the E2E suite against
+  those bindings. Container-network connections must remain functional.
+- Use a separate Compose override for any intentional remote-development access;
+  changing a port number in `.env` must never broaden the base stack's host binding.
+
 ## Feature Testcase Backlog
 
 Add concrete local service testcases here as features land:
