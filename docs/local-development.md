@@ -38,6 +38,37 @@ Check service status:
 docker compose ps
 ```
 
+## Local Network Access
+
+Every published dependency port binds explicitly to IPv4 loopback (`127.0.0.1`):
+PostgreSQL, Kafka, the MinIO API and console, and OPA. Port-number overrides in
+`.env` keep that host binding. Container-to-container networking is unchanged.
+Use `127.0.0.1` explicitly if your host resolves `localhost` to IPv6 only.
+
+On native Linux, use Docker Engine 28.0.0 or later before relying on loopback
+publishing for host-only access. On earlier engines, hosts on the same network
+segment can reach loopback-published ports; upgrade or enforce separate network
+restrictions that block off-host access. Docker Desktop is not affected by this
+native-Linux issue. See Docker's [port-publishing guidance](https://docs.docker.com/engine/network/port-publishing/)
+and [Engine 28 networking explanation](https://www.docker.com/blog/docker-engine-28-hardening-container-networking-by-default/).
+The configuration check below verifies the declared bindings, not firewall or
+same-network isolation.
+
+Check the resolved Compose bindings, including custom port-number overrides:
+
+```sh
+./gradlew test --tests 'com.biocompass.pkb.infrastructure.LocalComposePortsTest' --no-daemon
+```
+
+The check requires Docker CLI and Compose v2, but does not start containers or
+require a running Docker daemon. It rejects missing, wildcard, and other
+non-loopback host bindings without printing the resolved environment.
+
+Remote development access requires a separate, deliberate Compose override;
+the base stack has no host-address environment switch. Review that override's
+network restrictions and authentication before use. For Kafka, an intentional
+remote setup must also configure an advertised listener reachable by its clients.
+
 ## Local Endpoints
 
 | Dependency    | Endpoint                | Default credentials                     |
