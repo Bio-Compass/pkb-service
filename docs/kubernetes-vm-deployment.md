@@ -240,3 +240,5 @@ Delete the baseline deployment:
 ```sh
 helm uninstall pkb-service -n bio-compass
 ```
+
+Manual dispatch of CI validates and publishes a candidate image without deploying it. Only pushes to `main` enter the testing-to-production promotion chain.

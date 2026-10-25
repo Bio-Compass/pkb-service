@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
   pull_request:
     branches:
@@ -118,7 +119,7 @@ jobs:
     needs:
       - test
       - e2e-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
@@ -181,6 +182,7 @@ jobs:
         run: echo "sha=$(git -C helm-source rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
   deploy-testing:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     name: Deploy to testing
     needs: publish-image
     uses: ./.github/workflows/deploy-environment.yml

@@ -11,10 +11,12 @@ check(jobs.fetch('e2e-testing').fetch('needs') == 'deploy-testing', 'E2E must ru
 check(jobs.fetch('deploy-prod').fetch('needs').sort == %w[e2e-testing publish-image], 'Prod must require E2E success')
 %w[deploy-testing deploy-prod].each do |name|
   job = jobs.fetch(name)
-  check(!job.key?('if'), 'Promotion must retain success-only dependency behavior')
+  check(!job.key?('if'), 'Production must retain success-only dependency behavior') if name == 'deploy-prod'
   check(job.fetch('with').fetch('image-ref') == '${{ needs.publish-image.outputs.image-ref }}', 'Both environments must use the same digest')
   check(job.fetch('with').fetch('helm-revision') == '${{ needs.publish-image.outputs.helm-revision }}', 'Both environments must use the same Helm commit')
 end
+check(jobs.fetch('deploy-testing')['if'] == "github.event_name == 'push' && github.ref == 'refs/heads/main'", 'Manual candidate builds must not deploy')
+check(jobs.fetch('publish-image')['if'].include?("github.event_name == 'workflow_dispatch'"), 'Manual builds must publish tested candidates')
 check(jobs.fetch('deploy-testing')['with']['environment'] == 'testing', 'Wrong test namespace')
 check(jobs.fetch('deploy-prod')['with']['environment'] == 'prod', 'Wrong prod namespace')
 check(jobs.fetch('e2e-testing').fetch('environment') == 'testing', 'E2E must use testing credentials')
