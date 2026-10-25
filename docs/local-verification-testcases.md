@@ -144,3 +144,11 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
 ### Java CI verification (#66)
 
 `./gradlew testCiScripts --no-daemon` runs `DeploymentWorkflowTest` and `DeployChangeClassifierTest` through JUnit. These classes also run in the ordinary `test` suite; no Ruby or shell test runner is required. The classifier tests execute the actual standalone `.github/scripts/ClassifyDeployChange.java` source launcher with image-only, non-image, credential, suppressed-secret and no-change Helm diffs, then verify GitHub outputs and review artifacts. CI selects Java 25 before invoking it. Workflow/helper source files are declared Gradle test inputs so edits invalidate previous test results.
+
+## BAS introspection HTTP framing (#68)
+
+| ID | Verification | Expected result |
+| --- | --- | --- |
+| AUTH-TRANSPORT-001 | `./gradlew test --tests com.biocompass.pkb.auth.BioCompassTokenIntrospectionClientTest --no-daemon` | Spring-managed client sends the exact token JSON with its UTF-8 Content-Length and no chunked transfer encoding to a real HTTP server. Active/inactive and credential rejection behavior remain covered. |
+
+BAS on the testing cluster requires fixed-length JSON requests. Spring buffers the small introspection payload before transmission; service credentials, response parsing, and configured connect/read timeouts are preserved.

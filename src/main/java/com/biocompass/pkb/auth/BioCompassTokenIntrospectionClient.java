@@ -2,6 +2,7 @@ package com.biocompass.pkb.auth;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.security.oauth2.server.resource.introspection.OAuth2IntrospectionException;
 import org.springframework.stereotype.Component;
@@ -28,7 +29,7 @@ public class BioCompassTokenIntrospectionClient {
         requestFactory.setConnectTimeout(timeout);
         requestFactory.setReadTimeout(timeout);
         this.restClient = restClientBuilder.clone()
-                .requestFactory(requestFactory)
+                .requestFactory(new BufferingClientHttpRequestFactory(requestFactory))
                 .build();
     }
 
