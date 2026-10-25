@@ -114,6 +114,30 @@ tasks.register('e2eTest', Test) {
     testClassesDirs = sourceSets.e2eTest.output.classesDirs
     classpath = sourceSets.e2eTest.runtimeClasspath
     shouldRunAfter tasks.named('test')
+    filter { includeTestsMatching 'com.biocompass.pkb.e2e.PkbServiceE2eTest' }
+    systemProperty 'pkb.e2e.target', 'local'
+}
+
+tasks.register('deployedE2eTest', Test) {
+    description = 'Runs the shared Java API E2E checks against testing with real BAS login.'
+    group = 'verification'
+    testClassesDirs = sourceSets.e2eTest.output.classesDirs
+    classpath = sourceSets.e2eTest.runtimeClasspath
+    filter { includeTestsMatching 'com.biocompass.pkb.e2e.PkbServiceE2eTest' }
+    useJUnitPlatform { excludeTags 'local-fixture' }
+    systemProperty 'pkb.e2e.target', 'testing'
+    // BAS's internal Host is supplied over the authenticated Kubernetes port forward.
+    systemProperty 'jdk.httpclient.allowRestrictedHeaders', 'host'
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('e2eConfigurationTest', Test) {
+    description = 'Checks deployed E2E prerequisites and BAS login failure paths without a cluster.'
+    group = 'verification'
+    testClassesDirs = sourceSets.e2eTest.output.classesDirs
+    classpath = sourceSets.e2eTest.runtimeClasspath
+    filter { includeTestsMatching 'com.biocompass.pkb.e2e.DeployedE2eSessionTest' }
+    systemProperty 'jdk.httpclient.allowRestrictedHeaders', 'host'
 }
 
 tasks.register('testCiScripts', Exec) {
@@ -123,7 +147,7 @@ tasks.register('testCiScripts', Exec) {
 }
 
 tasks.named('test') {
-    dependsOn tasks.named('testCiScripts')
+    dependsOn tasks.named('testCiScripts'), tasks.named('e2eConfigurationTest')
 }
 
 tasks.register('fullVerification') {

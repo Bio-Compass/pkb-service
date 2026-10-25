@@ -81,7 +81,7 @@ The job sequence is:
 1. `test` and local `e2e-test` validate the source.
 2. `publish-image` publishes and records the immutable image and Helm revision.
 3. `deploy-testing` plans and records the `testing` namespace diff, then automatically invokes the existing Helm-owned `scripts/deploy.sh testing pkb-service <tag@digest>` with `DEPLOY_SOURCE=local` at the pinned commit. It waits for rollout, verifies the image and checks readiness.
-4. `e2e-testing` runs `.github/scripts/deployed-e2e.py` against the deployed testing PKB and BAS through namespace-scoped Kubernetes port forwards. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
+4. `e2e-testing` runs `./gradlew deployedE2eTest --no-daemon` using the existing Java E2E class against the deployed testing PKB and BAS through namespace-scoped Kubernetes port forwards. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
 5. `deploy-prod` is eligible only after testing E2E succeeds. It plans the production diff, always requires the `prod-manual-approval` environment, and deploys the same immutable image through Helm-owned machinery using `values/prod/pkb-service.yaml`.
 
 Failed, cancelled or skipped testing jobs cannot promote production. Main-branch runs are serialized without cancelling a deployment already in progress. Helm source and values are read from `Bio-Compass/bio-compass-helm` (overridable with `PKB_SERVICE_HELM_VALUES_REPOSITORY` and `PKB_SERVICE_HELM_VALUES_REF`). This service does not change Helm-owned scripts or charts.
@@ -110,7 +110,7 @@ Applying RBAC, creating namespace-scoped tokens and storing each kubeconfig in t
 
 ### Deployed E2E coverage and local replay
 
-The deployed suite covers readiness/liveness, OpenAPI availability, real BAS login, authenticated user-scoped PKB search, rejection of unauthenticated/invalid tokens, cross-user denial, query validation and missing-item behavior. It is read-only against PKB; it does not seed SQL, install an introspection stub, or mutate production data. The existing Gradle `e2eTest` remains the broader isolated local suite, including Kafka write/deduplication tests. Deployed write-path coverage requires the environment's command-ingress/AU configuration and a separate fixture lifecycle; passing read E2E does not claim write-path verification.
+Both Gradle targets run the existing `PkbServiceE2eTest` class. `e2eTest` selects local mode with the BAS stub and SQL/Kafka fixtures. `deployedE2eTest` selects testing mode with real BAS login and excludes `local-fixture` tagged cases; direct database access is also rejected in this mode. The shared deployed checks cover readiness/liveness, OpenAPI availability, real BAS login, authenticated user-scoped PKB search, rejection of unauthenticated/invalid tokens, cross-user denial, query validation and missing-item behavior. It is read-only against PKB; it does not seed SQL, install an introspection stub, or mutate production data. The existing Gradle `e2eTest` remains the broader isolated local suite, including Kafka write/deduplication tests. Deployed write-path coverage requires the environment's command-ingress/AU configuration and a separate fixture lifecycle; passing read E2E does not claim write-path verification.
 
 For local replay, start port forwards in separate terminals:
 
@@ -123,10 +123,18 @@ Then run with the account credentials supplied privately in the environment:
 
 ```sh
 PKB_E2E_NAMESPACE=testing PKB_E2E_BASE_URL=http://127.0.0.1:18080 \
-  PKB_E2E_AUTH_URL=http://127.0.0.1:18081 python3 .github/scripts/deployed-e2e.py
+  PKB_E2E_AUTH_URL=http://127.0.0.1:18081 ./gradlew deployedE2eTest --no-daemon
 ```
 
-The script accepts only loopback URLs and `testing` as the namespace. It supplies BAS's internal Host and ingress scheme metadata over the authenticated Kubernetes TLS tunnel; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
+The testing target accepts only loopback URLs and `testing` as the namespace. It supplies BAS's internal Host and ingress scheme metadata over the authenticated Kubernetes TLS tunnel; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
+
+For verification using existing GitHub testing secrets, dispatch CI on the reviewed branch with `verify-testing=true`:
+
+```sh
+gh workflow run ci.yml --ref codex/pkb-66-test-prod-promotion -f verify-testing=true
+```
+
+This mode runs Java E2E against the existing testing release and uploads Gradle XML/HTML reports. It publishes no image and performs no deployment or production promotion. Normal pushes to `main` still deploy testing first and promote only after the Java E2E gate succeeds. `./gradlew e2eConfigurationTest --no-daemon` validates target/credential rules and real HTTP login failure paths without cluster access; it is included in `test`.
 
 ### Activation evidence (2026-10-25)
 

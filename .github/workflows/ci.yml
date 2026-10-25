@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      verify-testing:
+        description: Run Java E2E against existing testing without publishing or deploying an image
+        type: boolean
+        default: false
   push:
   pull_request:
     branches:
@@ -119,7 +124,7 @@ jobs:
     needs:
       - test
       - e2e-test
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && !inputs.verify-testing)
     permissions:
       contents: read
       packages: write
@@ -194,6 +199,10 @@ jobs:
 
   e2e-testing:
     name: E2E against deployed testing service
+    if: >-
+      always() && !cancelled() &&
+      (needs.deploy-testing.result == 'success' ||
+      (github.event_name == 'workflow_dispatch' && inputs.verify-testing))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: deploy-testing
@@ -202,6 +211,11 @@ jobs:
       KUBECONFIG: /home/runner/.kube/pkb-ci-config
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
       - uses: azure/setup-kubectl@v4
       - name: Configure testing credentials
         env:
@@ -224,7 +238,16 @@ jobs:
           kubectl -n testing port-forward --address 127.0.0.1 service/bio-compass-auth 18081:80 > "${RUNNER_TEMP}/bas-forward.log" 2>&1 &
           bas_pid=$!
           trap 'kill "${pkb_pid}" "${bas_pid}" 2>/dev/null || true' EXIT
-          python3 .github/scripts/deployed-e2e.py
+          ./gradlew deployedE2eTest --no-daemon
+      - name: Upload deployed Java E2E reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pkb-deployed-e2e-report
+          path: |
+            build/reports/tests/deployedE2eTest
+            build/test-results/deployedE2eTest
+          if-no-files-found: ignore
       - name: Remove Kubernetes credentials
         if: always()
         run: rm -f "${KUBECONFIG}"
