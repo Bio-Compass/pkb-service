@@ -72,51 +72,81 @@ helm upgrade --install pkb-service "${HELM_CHART}" \
 
 For registry images, build and push with `-PcontainerImage=<registry>/pkb-service`, then set `image.repository=<registry>/pkb-service`. The BioCompass Helm defaults expect `ghcr.io/bio-compass/pkb-service`.
 
-## GitHub Actions Deployment
+## GitHub Actions: testing before production
 
-On pushes to `main`, the repository CI workflow runs tests, pushes the service image to `ghcr.io/bio-compass/pkb-service`, reads the Helm chart from the OCI chart registry, checks out the dev values file from the Helm repository, shows the Helm diff, then deploys with `helm upgrade --install`.
+Tracked by [PKB #66](https://github.com/Bio-Compass/pkb-service/issues/66). The CI workflow builds the application once after Gradle and local-service E2E pass. It records the pushed image digest and the resolved Helm repository commit. Planning/linting use pinned Helm 3 for the existing Helm diff plugin; applying uses Helm 4.3.1 because Helm-owned rollout machinery requires `--rollback-on-failure`. Both environment deployments use that same `tag@sha256:digest` and Helm commit; production never rebuilds the image or re-resolves mutable Helm `main`.
+
+The job sequence is:
+
+1. `test` and local `e2e-test` validate the source.
+2. `publish-image` publishes and records the immutable image and Helm revision.
+3. `deploy-testing` plans and records the `testing` namespace diff, then automatically invokes the existing Helm-owned `scripts/deploy.sh testing pkb-service <tag@digest>` with `DEPLOY_SOURCE=local` at the pinned commit. It waits for rollout, verifies the image and checks readiness.
+4. `e2e-testing` runs `./gradlew deployedE2eTest --no-daemon` using the existing Java E2E class against the deployed testing PKB and BAS through namespace-scoped Kubernetes port forwards. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
+5. `deploy-prod` is eligible only after testing E2E succeeds. It plans the production diff, always requires the `prod-manual-approval` environment, and deploys the same immutable image through Helm-owned machinery using `values/prod/pkb-service.yaml`.
+
+Failed, cancelled or skipped testing jobs cannot promote production. Main-branch runs are serialized without cancelling a deployment already in progress. Helm source and values are read from `Bio-Compass/bio-compass-helm` (overridable with `PKB_SERVICE_HELM_VALUES_REPOSITORY` and `PKB_SERVICE_HELM_VALUES_REF`). This service does not change Helm-owned scripts or charts.
+
+Manual dispatch of CI validates and publishes a candidate image without deploying it. Only pushes to `main` enter the testing-to-production promotion chain.
+
+Custom workflow verification and Helm change classification use Java 25. JUnit workflow/classifier checks run in `./gradlew test` or the focused `./gradlew testCiScripts` task. The planning job invokes standalone `.github/scripts/ClassifyDeployChange.java`; it produces the same GitHub classification outputs and review artifacts without packaging CI code into the application. Shell steps invoke Helm, kubectl and other CI tools; Ruby is not required.
+
+### GitHub environment setup
+
+Create GitHub environments `testing`, `prod`, and `prod-manual-approval`. Testing deploys automatically after CI validation, as authorized by the project owner. Configure required reviewers on `prod-manual-approval`. The workflow checks that reviewers exist and fails closed if the approval environment is unprotected. The approval URL links to the workflow run with a namespace-specific `deploy-review-testing` or `deploy-review-prod` Helm diff artifact. Review that diff before approving.
+
+Each runtime environment needs its own `KUBE_CONFIG` secret. Credentials must access only the matching namespace. The legacy repository credential scoped to `bio-compass` cannot deploy to either new namespace. Configure `BIO_COMPASS_HELM_VALUES_SSH_KEY` as the existing repository-scoped read-only Helm deploy key. Application/database/S3 secrets remain in the namespace's existing `pkb-service-secrets`; the pipeline never re-renders them from legacy `dev` secrets. Helm environment values must use `secrets.create=false` and reference the existing Secret. Rendered Secret resources cause CI to fail.
+
+The `testing` GitHub environment also needs `PKB_E2E_USERNAME` (BAS email) and `PKB_E2E_PASSWORD`. The synthetic account must be active, email-verified and non-staff. Create/verify it through BAS's supported operator workflow; store its password directly in GitHub Secrets. Never use a production account or weaken BAS introspection for tests. BAS login is performed anew on every run, so no expiring user access token is saved in CI.
+
+The deployer manifests in `deploy/kubernetes/sa-deployer` can be rendered for each namespace for administrator review:
 
 ```sh
-helm upgrade --install pkb-service oci://ghcr.io/bio-compass/charts/pkb-service \
-  --namespace bio-compass \
-  --values <bio-compass-helm>/values/dev/pkb-service.yaml \
-  --set image.repository=ghcr.io/bio-compass/pkb-service \
-  --set image.tag=<image-tag> \
-  --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD=<temporary-file-from-GitHub-secret> \
-  --set-file secrets.stringData.PKB_S3_ACCESS_KEY=<temporary-file-from-GitHub-secret> \
-  --set-file secrets.stringData.PKB_S3_SECRET_KEY=<temporary-file-from-GitHub-secret>
+for namespace in testing prod; do
+  { cat deploy/kubernetes/sa-deployer/sa.yaml; echo '---'; cat deploy/kubernetes/sa-deployer/rbac.yaml; } \
+    | sed "s/namespace: bio-compass/namespace: ${namespace}/g" > "/tmp/pkb-deployer-${namespace}.yaml"
+  kubectl --context biocompass-netcup diff -f "/tmp/pkb-deployer-${namespace}.yaml"
+done
 ```
 
-The workflow reads `PKB_DATASOURCE_PASSWORD`, `PKB_S3_ACCESS_KEY`, and `PKB_S3_SECRET_KEY` from the GitHub `dev` environment or repository secrets. It writes each into a temporary file and passes it to Helm with `--set-file`, so the values are created only in the release Kubernetes Secret and are never shown in command output or the Helm diff. MinIO consumes the S3 keys as its root credentials and PKB consumes them as its S3 client credentials. The plan job uses `helm diff --suppress-secrets`, so secret resource changes remain visible for approval classification without uploading secret values in the workflow artifact.
+Applying RBAC, creating namespace-scoped tokens and storing each kubeconfig in the matching GitHub environment are administrator operations requiring separate review. The role includes `pods/portforward:create` for API E2E/readiness checks. Track and rotate bounded CI token expirations; do not upload an administrator kubeconfig. This source change alone does not provision either environment's deployment credentials or activate a rollout.
 
-The plan job writes the repository change list and Helm diff to the job log and step summary. When manual approval is required, it also writes a dedicated manual approval review with the full Helm diff, uploads that review as a workflow artifact, and attaches the run-summary URL to the `dev-manual-approval` environment. The diff is calculated with the same dev values file and GitHub-provided datasource password that the deployment jobs use. The workflow deploys automatically when the rendered Helm diff changes only the container image. It waits on the `dev-manual-approval` GitHub environment when the Helm diff includes any non-image or Secret change.
+### Deployed E2E coverage and local replay
 
-Configure `dev-manual-approval` with required reviewers in GitHub Environments to enforce the manual approval gate. Reviewers should open the environment URL and read the manual approval review before approving. The workflow verifies that this environment has at least one required reviewer before it allows a non-image deploy to proceed.
+Both Gradle targets run the existing `PkbServiceE2eTest` class. `e2eTest` selects local mode with the BAS stub and SQL/Kafka fixtures. `deployedE2eTest` selects testing mode with real BAS login and excludes `local-fixture` tagged cases; direct database access is also rejected in this mode. The shared deployed checks cover readiness/liveness, OpenAPI availability, real BAS login, authenticated user-scoped PKB search, rejection of unauthenticated/invalid tokens, cross-user denial, query validation and missing-item behavior. It is read-only against PKB; it does not seed SQL, install an introspection stub, or mutate production data. The existing Gradle `e2eTest` remains the broader isolated local suite, including Kafka write/deduplication tests. Deployed write-path coverage requires the environment's command-ingress/AU configuration and a separate fixture lifecycle; passing read E2E does not claim write-path verification.
 
-If every deploy still shows a `PKB_DATASOURCE_PASSWORD` change in the Helm diff after `PKB_DATASOURCE_PASSWORD` is configured in GitHub, the chart or dev values are likely ignoring `secrets.stringData.PKB_DATASOURCE_PASSWORD` or still rendering another mutable Secret value. Fix that in the Helm chart or values by honoring this override or by referencing an existing Kubernetes Secret instead of generating a new password during each render.
+For local replay, start port forwards in separate terminals:
 
-The deploy jobs require credentials in the GitHub `dev` environment or repository secrets:
+```sh
+kubectl --context biocompass-netcup -n testing port-forward service/pkb-service 18080:80
+kubectl --context biocompass-netcup -n testing port-forward service/bio-compass-auth 18081:80
+```
 
-- `BIO_COMPASS_HELM_TOKEN`: token with package read access to the Helm chart registry when the default `GITHUB_TOKEN` cannot read the chart package. For GHCR, use a personal access token classic with `read:packages`, or grant the `pkb-service` repository access to the chart package so `GITHUB_TOKEN` can read it.
-- `BIO_COMPASS_HELM_VALUES_SSH_KEY`: private SSH deploy key with read access to the private Helm values repository.
-- `KUBE_CONFIG`: raw kubeconfig content for the target cluster.
-- `KUBE_CONFIG_B64`: base64-encoded kubeconfig content. This is only used when `KUBE_CONFIG` is not set.
-- `PKB_DATASOURCE_PASSWORD`: stable PostgreSQL password for the deployed PKB datasource.
-- `PKB_S3_ACCESS_KEY`: MinIO root user and PKB S3 access key.
-- `PKB_S3_SECRET_KEY`: MinIO root password and PKB S3 secret key.
+Then run with the account credentials supplied privately in the environment:
 
-The Helm chart reference can be overridden with repository variables:
+```sh
+PKB_E2E_NAMESPACE=testing PKB_E2E_BASE_URL=http://127.0.0.1:18080 \
+  PKB_E2E_AUTH_URL=http://127.0.0.1:18081 ./gradlew deployedE2eTest --no-daemon
+```
 
-- `PKB_SERVICE_HELM_CHART`: OCI chart reference. Defaults to `oci://ghcr.io/bio-compass/charts/pkb-service`.
-- `PKB_SERVICE_HELM_CHART_VERSION`: optional chart version.
-- `PKB_SERVICE_HELM_VALUES_REPOSITORY`: optional repository containing the deployment values file. Defaults to `Bio-Compass/bio-compass-helm`.
-- `PKB_SERVICE_HELM_VALUES_REF`: optional branch, tag, or SHA for the values repository. Defaults to `main`.
-- `PKB_SERVICE_HELM_VALUES_FILE`: optional values path inside the values repository. Defaults to `values/dev/pkb-service.yaml`.
-- `HELM_VERSION`: optional Helm CLI version for deployment jobs. Defaults to `v3.19.2`.
-- `HELM_DIFF_VERSION`: optional pinned `databus23/helm-diff` plugin version. Defaults to `v3.13.2`.
-- `HELM_REGISTRY_USERNAME`: optional username for Helm registry login. Defaults to the workflow actor. Set this when `BIO_COMPASS_HELM_TOKEN` belongs to a different GitHub user.
+The testing target accepts only loopback URLs and `testing` as the namespace. It supplies BAS's internal Host and ingress scheme metadata over the authenticated Kubernetes TLS tunnel; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
 
-The workflow waits for `deployment/pkb-service` to roll out in the `bio-compass` namespace after Helm upgrade.
+For verification using existing GitHub testing secrets, dispatch CI on the reviewed branch with `verify-testing=true`:
+
+```sh
+gh workflow run ci.yml --ref codex/pkb-66-test-prod-promotion -f verify-testing=true
+```
+
+This mode runs Java E2E against the existing testing release and uploads Gradle XML/HTML reports. It publishes no image and performs no deployment or production promotion. Normal pushes to `main` still deploy testing first and promote only after the Java E2E gate succeeds. `./gradlew e2eConfigurationTest --no-daemon` validates target/credential rules and real HTTP login failure paths without cluster access; it is included in `test`.
+
+### Activation evidence (2026-10-25)
+
+Local CI classifier, pipeline dependency and E2E prerequisite tests passed through `./gradlew test`. Namespace-scoped CI credentials are installed in the matching GitHub `testing` and `prod` environments, with cross-namespace denial verified. Production approval has required reviewers; testing has no manual deployment gate. Bounded CI tokens expire on 2027-10-24 and need rotation before then.
+
+A verified, non-staff synthetic account exists only in testing BAS; its credentials are stored in GitHub's `testing` environment. The approved directed PKB credential is configured in testing BAS and PKB. [BAS #9](https://github.com/Bio-Compass/bio-compass-auth/pull/9) adds the missing fixed introspection allowlist entry. Its build-only CI passed and its immutable 1.55.1 image is deployed to testing using the existing Helm chart 0.2.2 with image-only differences.
+
+The deployed suite then exposed a separate HTTP framing incompatibility: BAS rejects PKB's chunked JSON as an empty body, while fixed-length JSON succeeds. [PKB #69](https://github.com/Bio-Compass/pkb-service/pull/69) adds framework buffering and a real HTTP regression test; its complete local Gradle suite passes. The immutable candidate from [CI run 40186346591](https://github.com/Bio-Compass/pkb-service/actions/runs/40186346591), source `1dc6bf6acec484d755c9b177bc9fc06d3f781dbb`, digest `sha256:db93ef0854dc6898d752ada97288b0eafa9e3eecd4d826f574db240b2a8e2b06`, was deployed to testing through the existing Helm chart 0.2.1 at pinned Helm commit `9e6aec8646621c5729d5194f34d2cd2291ed0b77`. The resource comparison showed only the PKB Deployment image changed; Helm revision 2 and actual image identity were verified. All deployed read E2E checks passed against real testing BAS/PKB. Temporary port forwards were closed after verification. Production application rollout has not occurred and remains blocked by the test gate and separate manual approval.
+
+A companion [central architecture patch](architecture-sync/pkb-66-test-prod-promotion.patch) records the pipeline as **proposed**, preserves existing Helm ownership/manual production authorization, and includes release metadata. It is prepared for central-owner review; it has not been applied to the architecture repository.
 
 ## Configure Secrets
 
