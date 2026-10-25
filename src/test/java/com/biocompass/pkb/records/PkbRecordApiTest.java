@@ -70,6 +70,8 @@ class PkbRecordApiTest {
     private static final AtomicReference<String> FORWARDED_BODY = new AtomicReference<>();
     private static final AtomicReference<String> FORWARDED_AUTH = new AtomicReference<>();
     private static final AtomicReference<String> FORWARDED_SERVICE = new AtomicReference<>();
+    private static final AtomicReference<String> FORWARDED_LENGTH = new AtomicReference<>();
+    private static final AtomicReference<String> FORWARDED_ENCODING = new AtomicReference<>();
     private static final HttpServer BAS = startBas();
 
     @Autowired private MockMvc mvc;
@@ -88,6 +90,7 @@ class PkbRecordApiTest {
 
     @BeforeEach void allowVerifiedAuthorityAndPolicy() {
         BAS_STATUS.set(200); BAS_CALLS.set(0); FORWARDED_BODY.set(null);
+        FORWARDED_LENGTH.set(null); FORWARDED_ENCODING.set(null);
         BAS_BODY.set(activeResponse(PRODUCER, "[\"hydration:read\",\"hydration:summary:read\",\"hydration:create\",\"hydration:delete\"]"));
         doAnswer(invocation -> {
             PkbAuthorizationRequest request = invocation.getArgument(0);
@@ -163,6 +166,13 @@ class PkbRecordApiTest {
         assertThat(policy.getValue().actor().actorId()).isEqualTo("verified-actor");
         assertThat(policy.getValue().actor().staff()).isFalse();
         verifyNoInteractions(legacyIntrospector);
+    }
+
+    @Test void basWsgiReceivesLengthDelimitedJson() throws Exception {
+        mvc.perform(auth(get(BASE + "/" + ITEM))).andExpect(status().isOk());
+        assertThat(FORWARDED_LENGTH.get())
+                .isEqualTo(String.valueOf(FORWARDED_BODY.get().getBytes(StandardCharsets.UTF_8).length));
+        assertThat(FORWARDED_ENCODING.get()).isNull();
     }
 
     @Test void inactiveAuthorityFailsClosedWithoutPolicyOrStorage() throws Exception {
@@ -436,6 +446,8 @@ class PkbRecordApiTest {
                 BAS_CALLS.incrementAndGet();
                 FORWARDED_AUTH.set(exchange.getRequestHeaders().getFirst("Authorization"));
                 FORWARDED_SERVICE.set(exchange.getRequestHeaders().getFirst("X-BioCompass-Service"));
+                FORWARDED_LENGTH.set(exchange.getRequestHeaders().getFirst("Content-Length"));
+                FORWARDED_ENCODING.set(exchange.getRequestHeaders().getFirst("Transfer-Encoding"));
                 FORWARDED_BODY.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
                 var bytes = BAS_BODY.get().getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");

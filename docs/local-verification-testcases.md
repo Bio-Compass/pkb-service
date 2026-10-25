@@ -122,6 +122,9 @@ Add concrete local service testcases here as features land:
 
 ## PKB #62 — client-neutral source-record integration
 
+- Verify the real BAS Django WSGI endpoint receives length-delimited JSON with `Content-Length`,
+  rather than chunked framing, from the PKB authority client. `PkbRecordApiTest` checks framing;
+  exercise actual BAS login and BWTS → PKB → BAS verification in a disposable local stack.
 - Verify separate producer/user credentials, invalid/expired authority, unknown producer,
   subject substitution, AU denial/unavailability, incorrect action/user binding and unsupported
   obligations. Responses/logs must not disclose upstream details or credentials.

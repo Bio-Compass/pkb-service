@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -23,7 +24,8 @@ public class PkbRecordAuthorityClient {
         var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(properties.timeout())
                 .followRedirects(HttpClient.Redirect.NEVER).build());
         factory.setReadTimeout(properties.timeout());
-        client = builder.clone().requestFactory(factory).build();
+        // Django WSGI requires Content-Length to expose the JSON request body.
+        client = builder.clone().requestFactory(new BufferingClientHttpRequestFactory(factory)).build();
     }
     public PkbRecordAuthority authenticate(String producer, String authorization, String token) {
         if (!StringUtils.hasText(producer) || authorization == null || !authorization.startsWith("Bearer ")
