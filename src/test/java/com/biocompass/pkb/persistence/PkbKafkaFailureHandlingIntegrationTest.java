@@ -4,6 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -231,6 +232,82 @@ class PkbKafkaFailureHandlingIntegrationTest extends AbstractPostgresIntegration
         verify(authorizationGateway).decide(forCommand(original.commandId()));
     }
 
+    @Test
+    void duplicateSourceReachesDeadLetterWithoutPartialWritesAndExactRetryStillSucceeds() throws Exception {
+        var original = commandMessage();
+        var duplicate = commandMessage();
+        var originalCommand = (CreatePkbItemCommand) original.command();
+        var duplicateCommand = (CreatePkbItemCommand) duplicate.command();
+        duplicate = new PkbKafkaCommandMessage(
+                duplicate.commandId(), duplicate.submittedAt(), duplicate.context(),
+                new CreatePkbItemCommand(
+                        duplicateCommand.userId(), duplicateCommand.entityType(), duplicateCommand.subtype(),
+                        duplicateCommand.status(), duplicateCommand.payload(), " Integration-Test ",
+                        " " + originalCommand.sourceId() + " ", duplicateCommand.observedAt(), duplicateCommand.observedTimezone(),
+                        duplicateCommand.validFrom(), duplicateCommand.validUntil(), duplicateCommand.language(),
+                        duplicateCommand.consentScope(), duplicateCommand.privacyScope(), duplicateCommand.verificationStatus(),
+                        null, new PkbProvenanceCommand("integration-test", "system", "duplicate-source:" + duplicate.commandId(), null, "direct"),
+                        duplicateCommand.correlationId()));
+        when(authorizationGateway.decide(forCommand(original.commandId())))
+                .thenAnswer(invocation -> allowed(invocation.getArgument(0)));
+        when(authorizationGateway.decide(forCommand(duplicate.commandId())))
+                .thenAnswer(invocation -> allowed(invocation.getArgument(0)));
+        publish(COMMAND_TOPIC, original);
+        awaitProcessed(original);
+        var duplicateId = duplicate.commandId();
+        var duplicateUserId = duplicate.command().userId();
+
+        publish(COMMAND_TOPIC, duplicate);
+
+        var deadLetter = awaitDeadLetter(value -> hasCommandId(value, duplicateId));
+        assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_MESSAGE)).contains("uq_pkb_item_source");
+        verify(authorizationGateway).decide(forCommand(duplicateId));
+        assertThat(processedCommandRepository.existsById(duplicateId)).isFalse();
+        assertThat(itemDao.findAllByUser(duplicateUserId)).isEmpty();
+        assertThat(queryStrings("SELECT event_id::text FROM pkb_outbox_event WHERE user_id = ?", duplicateUserId)).isEmpty();
+        assertThat(queryStrings("SELECT provenance_id::text FROM pkb_provenance WHERE workflow_id = ?",
+                "duplicate-source:" + duplicateId)).isEmpty();
+        var originalItem = itemDao.findAllByUser(original.command().userId()).getFirst();
+        assertThat(itemDao.findProvenance(originalItem.getPkbItemId())).hasSize(1);
+        assertThat(queryStrings("SELECT event_id::text FROM pkb_outbox_event WHERE user_id = ?", original.command().userId()))
+                .hasSize(1);
+
+        publish(COMMAND_TOPIC, original);
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                assertThat(processedCommandRepository.findById(original.commandId()).orElseThrow().getDeliveryCount()).isEqualTo(2));
+        assertThat(itemDao.findAllByUser(original.command().userId())).hasSize(1);
+        assertThat(itemDao.findProvenance(originalItem.getPkbItemId())).hasSize(1);
+        assertThat(queryStrings("SELECT event_id::text FROM pkb_outbox_event WHERE user_id = ?", original.command().userId()))
+                .hasSize(1);
+        verify(authorizationGateway).decide(forCommand(original.commandId()));
+    }
+
+    @Test
+    void conflictingSupersessionGoesDirectlyToDltWithoutCanonicalOrInboxEffects() throws Exception {
+        var original = commandMessage();
+        var user = original.command().userId();
+        when(authorizationGateway.decide(any())).thenAnswer(invocation -> allowed(invocation.getArgument(0)));
+        publish(COMMAND_TOPIC, original);
+        awaitProcessed(original);
+        var originalId = itemDao.findAllByUser(user).getFirst().getPkbItemId();
+        var source = (CreatePkbItemCommand) commandMessage().command();
+        var replacement = source.withUserIdSupersedesAndCorrelationId(user, originalId, "replacement");
+        var winner = new PkbKafkaCommandMessage(UUID.randomUUID(), Instant.now(), original.context(), replacement);
+        publish(COMMAND_TOPIC, winner);
+        awaitProcessed(winner);
+        var loser = new PkbKafkaCommandMessage(UUID.randomUUID(), Instant.now(), original.context(),
+                new com.biocompass.pkb.command.dto.SupersedePkbItemCommand(user, originalId, replacement, "loser"));
+        publish(COMMAND_TOPIC, loser);
+
+        var deadLetter = awaitDeadLetter(value -> hasCommandId(value, loser.commandId()));
+        assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_MESSAGE)).contains("already superseded");
+        verify(authorizationGateway, times(1)).decide(forCommand(loser.commandId()));
+        assertThat(processedCommandRepository.existsById(loser.commandId())).isFalse();
+        assertThat(itemDao.findAllByUser(user)).hasSize(2);
+        var replacementId = itemDao.findByUserAndItemId(user, originalId).orElseThrow().getSupersededBy();
+        assertThat(itemDao.findProvenance(replacementId)).hasSize(1);
+    }
+
     private void publish(String topic, PkbKafkaCommandMessage message) throws Exception {
         kafkaTemplate.send(topic, message.command().userId().toString(), message).get(10, TimeUnit.SECONDS);
     }
@@ -283,7 +360,7 @@ class PkbKafkaFailureHandlingIntegrationTest extends AbstractPostgresIntegration
     }
 
     private static PkbAuthorizationRequest forCommand(UUID commandId) {
-        return argThat(request -> commandId.equals(request.commandId()));
+        return argThat(request -> request != null && commandId.equals(request.commandId()));
     }
 
     private static PkbAuthorizationDecision allowed(PkbAuthorizationRequest request) {

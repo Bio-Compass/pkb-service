@@ -215,7 +215,7 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
     void relationshipCrudCreatesReadsUpdatesAndDeletesRelationships() {
         var userId = UUID.randomUUID();
         var observedAt = Instant.parse("2026-06-22T07:00:00Z");
-        var sourceItem = itemDao.save(waterIntakeItem(userId, observedAt, "relationship-source"));
+        var sourceItem = itemDao.save(waterIntakeItem(userId, observedAt, "dao-relationship-source"));
         var targetItem = itemDao.save(dailySummaryItem(userId, observedAt));
 
         var relationship = PkbRelationshipEntity.builder()
@@ -531,7 +531,7 @@ class PkbPersistenceDaoIntegrationTest extends AbstractPostgresIntegrationTest {
                         "date", "2026-06-20"
                 )))
                 .sourceType("derived")
-                .sourceId("daily-water-total-2026-06-20")
+                .sourceId("daily-water-total-2026-06-20-" + userId)
                 .observedAt(observedAt)
                 .validFrom(Instant.parse("2026-06-20T00:00:00Z"))
                 .validUntil(Instant.parse("2026-06-20T23:59:59Z"))
