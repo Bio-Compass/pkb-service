@@ -25,9 +25,9 @@
 +<a id="decision-20261024-pkb-promotion"></a>
 +## 2026-10-24 — PKB deployed testing E2E before production promotion
 +
-+**Status:** Proposed; requested for PKB in [issue 66](https://github.com/Bio-Compass/pkb-service/issues/66). Project-owner review and deployment approval remain required. This does not amend accepted platform ownership or assert activation.
++**Status:** Proposed; requested for PKB in [issue 66](https://github.com/Bio-Compass/pkb-service/issues/66). Project-owner review and production deployment approval remain required. This does not amend accepted platform ownership or assert activation.
 +
-+**Proposal:** PKB CI builds one immutable application image and pins one Helm repository revision. It deploys that selection to the testing environment, runs service-owned E2E against the deployed service with real BAS authentication, and offers production promotion of the same image only after E2E succeeds. Production promotion retains explicit manual authorization; failed, skipped, or cancelled testing gates cannot authorize production.
++**Proposal:** PKB CI builds one immutable application image and pins one Helm repository revision. It automatically deploys that selection to the testing environment without a manual approval gate, runs service-owned E2E against the deployed service with real BAS authentication, and offers production promotion of the same image only after E2E succeeds. Production promotion retains explicit manual authorization; failed, skipped, or cancelled testing gates cannot authorize production.
 +
 +Helm remains authoritative for chart, environment values, existing-secret configuration, deployment and rollback machinery. PKB owns its CI dependency graph and API acceptance suite. A synthetic non-staff testing account is test data, not production identity or a substitute authority service. Per-environment credentials are isolated. Exact namespace names, setup commands, gate coverage, and dated validation evidence belong in the [PKB deployment guide](https://github.com/Bio-Compass/pkb-service/blob/codex/pkb-66-test-prod-promotion/docs/kubernetes-vm-deployment.md), not the central architecture.
 +

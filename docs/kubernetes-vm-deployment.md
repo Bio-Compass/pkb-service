@@ -80,7 +80,7 @@ The job sequence is:
 
 1. `test` and local `e2e-test` validate the source.
 2. `publish-image` publishes and records the immutable image and Helm revision.
-3. `deploy-testing` plans the `testing` namespace diff, requests approval for non-image changes, then invokes the existing Helm-owned `scripts/deploy.sh testing pkb-service <tag@digest>` with `DEPLOY_SOURCE=local` at the pinned commit. It waits for rollout, verifies the image and checks readiness.
+3. `deploy-testing` plans and records the `testing` namespace diff, then automatically invokes the existing Helm-owned `scripts/deploy.sh testing pkb-service <tag@digest>` with `DEPLOY_SOURCE=local` at the pinned commit. It waits for rollout, verifies the image and checks readiness.
 4. `e2e-testing` runs `.github/scripts/deployed-e2e.py` against the deployed testing PKB and BAS through namespace-scoped Kubernetes port forwards. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
 5. `deploy-prod` is eligible only after testing E2E succeeds. It plans the production diff, always requires the `prod-manual-approval` environment, and deploys the same immutable image through Helm-owned machinery using `values/prod/pkb-service.yaml`.
 
@@ -90,7 +90,7 @@ Manual dispatch of CI validates and publishes a candidate image without deployin
 
 ### GitHub environment setup
 
-Create GitHub environments `testing`, `prod`, `testing-manual-approval`, and `prod-manual-approval`. Configure required reviewers on both approval environments. The workflow checks that reviewers exist and fails closed if the approval environment is unprotected. The approval URL links to the workflow run with a namespace-specific `deploy-review-testing` or `deploy-review-prod` Helm diff artifact. Review that diff before approving.
+Create GitHub environments `testing`, `prod`, and `prod-manual-approval`. Testing deploys automatically after CI validation, as authorized by the project owner. Configure required reviewers on `prod-manual-approval`. The workflow checks that reviewers exist and fails closed if the approval environment is unprotected. The approval URL links to the workflow run with a namespace-specific `deploy-review-testing` or `deploy-review-prod` Helm diff artifact. Review that diff before approving.
 
 Each runtime environment needs its own `KUBE_CONFIG` secret. Credentials must access only the matching namespace. The legacy repository credential scoped to `bio-compass` cannot deploy to either new namespace. Configure `BIO_COMPASS_HELM_VALUES_SSH_KEY` as the existing repository-scoped read-only Helm deploy key. Application/database/S3 secrets remain in the namespace's existing `pkb-service-secrets`; the pipeline never re-renders them from legacy `dev` secrets. Helm environment values must use `secrets.create=false` and reference the existing Secret. Rendered Secret resources cause CI to fail.
 
@@ -130,11 +130,11 @@ The script accepts only loopback URLs and `testing` as the namespace. It supplie
 
 ### Activation evidence (2026-10-25)
 
-Local CI classifier, pipeline dependency and E2E prerequisite tests passed through `./gradlew test`. Namespace-scoped CI credentials are installed in the matching GitHub `testing` and `prod` environments, with cross-namespace denial verified. Both manual-approval environments have required reviewers. Bounded CI tokens expire on 2027-10-24 and need rotation before then.
+Local CI classifier, pipeline dependency and E2E prerequisite tests passed through `./gradlew test`. Namespace-scoped CI credentials are installed in the matching GitHub `testing` and `prod` environments, with cross-namespace denial verified. Production approval has required reviewers; testing has no manual deployment gate. Bounded CI tokens expire on 2027-10-24 and need rotation before then.
 
 A verified, non-staff synthetic account exists only in testing BAS; its credentials are stored in GitHub's `testing` environment. The approved directed PKB credential is configured in testing BAS and PKB. [BAS #9](https://github.com/Bio-Compass/bio-compass-auth/pull/9) adds the missing fixed introspection allowlist entry. Its build-only CI passed and its immutable 1.55.1 image is deployed to testing using the existing Helm chart 0.2.2 with image-only differences.
 
-The deployed suite then exposed a separate HTTP framing incompatibility: BAS rejects PKB's chunked JSON as an empty body, while fixed-length JSON succeeds. [PKB #69](https://github.com/Bio-Compass/pkb-service/pull/69) adds framework buffering and a real HTTP regression test; its complete local Gradle suite passes. Testing image rollout and a successful deployed E2E gate remain required. Production application rollout has not occurred and remains blocked by the test gate and separate manual approval.
+The deployed suite then exposed a separate HTTP framing incompatibility: BAS rejects PKB's chunked JSON as an empty body, while fixed-length JSON succeeds. [PKB #69](https://github.com/Bio-Compass/pkb-service/pull/69) adds framework buffering and a real HTTP regression test; its complete local Gradle suite passes. The immutable CI candidate testing rollout and deployed E2E gate are being verified. Production application rollout has not occurred and remains blocked by the test gate and separate manual approval.
 
 A companion [central architecture patch](architecture-sync/pkb-66-test-prod-promotion.patch) records the pipeline as **proposed**, preserves existing Helm ownership/manual production authorization, and includes release metadata. It is prepared for central-owner review; it has not been applied to the architecture repository.
 
