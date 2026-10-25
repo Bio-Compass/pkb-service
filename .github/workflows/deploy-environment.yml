@@ -30,6 +30,11 @@ jobs:
           helm-revision: ${{ inputs.helm-revision }}
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
           helm-ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
+      - name: Set up Java for Helm change classification
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
       - name: Install Helm diff
         run: helm plugin install https://github.com/databus23/helm-diff --version v3.13.2
       - name: Plan environment change
@@ -51,7 +56,7 @@ jobs:
           echo "status=${status}" >> "${GITHUB_OUTPUT}"
       - name: Classify environment diff
         id: classify
-        run: bash .github/scripts/classify-deploy-change.sh --helm-diff helm-diff.txt --diff-status '${{ steps.diff.outputs.status }}' --output-dir .
+        run: java .github/scripts/ClassifyDeployChange.java --helm-diff helm-diff.txt --diff-status '${{ steps.diff.outputs.status }}' --output-dir .
       - name: Record promotion provenance
         env:
           TARGET_ENVIRONMENT: ${{ inputs.environment }}

@@ -88,6 +88,8 @@ Failed, cancelled or skipped testing jobs cannot promote production. Main-branch
 
 Manual dispatch of CI validates and publishes a candidate image without deploying it. Only pushes to `main` enter the testing-to-production promotion chain.
 
+Custom workflow verification and Helm change classification use Java 25. JUnit workflow/classifier checks run in `./gradlew test` or the focused `./gradlew testCiScripts` task. The planning job invokes standalone `.github/scripts/ClassifyDeployChange.java`; it produces the same GitHub classification outputs and review artifacts without packaging CI code into the application. Shell steps invoke Helm, kubectl and other CI tools; Ruby is not required.
+
 ### GitHub environment setup
 
 Create GitHub environments `testing`, `prod`, and `prod-manual-approval`. Testing deploys automatically after CI validation, as authorized by the project owner. Configure required reviewers on `prod-manual-approval`. The workflow checks that reviewers exist and fails closed if the approval environment is unprotected. The approval URL links to the workflow run with a namespace-specific `deploy-review-testing` or `deploy-review-prod` Helm diff artifact. Review that diff before approving.

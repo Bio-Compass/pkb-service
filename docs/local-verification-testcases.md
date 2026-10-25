@@ -124,7 +124,7 @@ Add concrete local service testcases here as features land:
 
 | ID | Check | Expected result |
 | --- | --- | --- |
-| CI-001 | `./gradlew testCiScripts --no-daemon` | Workflow dependency/immutable artifact checks pass; `./gradlew e2eConfigurationTest --no-daemon` covers deployed Java target/login failure paths and is included in `test`. |
+| CI-001 | `./gradlew testCiScripts --no-daemon` | Java workflow dependency/immutable artifact and actual classifier CLI checks pass; `./gradlew e2eConfigurationTest --no-daemon` covers deployed Java target/login failure paths and is included in `test`. |
 | CI-002 | Run `./gradlew deployedE2eTest --no-daemon` through the testing namespace port forwards, with dedicated BAS credentials | Real login, scoped PKB reads, input validation, missing-item and auth-denial assertions pass; no SQL/stub/production fixtures are used. |
 | CI-003 | Failed/skipped/cancelled `e2e-testing` | `deploy-prod` never runs. Missing testing secrets and BAS introspection errors are failures, not skips. |
 | CI-004 | Successful test gate and production promotion review | Production uses exactly the testing image digest and pinned Helm revision, waits for manual approval, then verifies rollout/image/readiness. |
@@ -140,6 +140,10 @@ See the [deployment guide](kubernetes-vm-deployment.md#github-actions-testing-be
 - CI manual `verify-testing=true`: runs the Java suite on the existing testing release with GitHub environment secrets, uploads the Gradle report, and skips image publication, deployments and production promotion. A failed Java E2E gate remains a failed workflow.
 
 The Python deployed suite was removed. Both targets reuse Java API assertions; deployed read checks do not claim the local-only write-path coverage.
+
+### Java CI verification (#66)
+
+`./gradlew testCiScripts --no-daemon` runs `DeploymentWorkflowTest` and `DeployChangeClassifierTest` through JUnit. These classes also run in the ordinary `test` suite; no Ruby or shell test runner is required. The classifier tests execute the actual standalone `.github/scripts/ClassifyDeployChange.java` source launcher with image-only, non-image, credential, suppressed-secret and no-change Helm diffs, then verify GitHub outputs and review artifacts. CI selects Java 25 before invoking it. Workflow/helper source files are declared Gradle test inputs so edits invalidate previous test results.
 
 ## BAS introspection HTTP framing (#68)
 
