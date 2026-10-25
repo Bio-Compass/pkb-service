@@ -86,6 +86,8 @@ The job sequence is:
 
 Failed, cancelled or skipped testing jobs cannot promote production. Main-branch runs are serialized without cancelling a deployment already in progress. Helm source and values are read from `Bio-Compass/bio-compass-helm` (overridable with `PKB_SERVICE_HELM_VALUES_REPOSITORY` and `PKB_SERVICE_HELM_VALUES_REF`). This service does not change Helm-owned scripts or charts.
 
+Manual dispatch of CI validates and publishes a candidate image without deploying it. Only pushes to `main` enter the testing-to-production promotion chain.
+
 ### GitHub environment setup
 
 Create GitHub environments `testing`, `prod`, `testing-manual-approval`, and `prod-manual-approval`. Configure required reviewers on both approval environments. The workflow checks that reviewers exist and fails closed if the approval environment is unprotected. The approval URL links to the workflow run with a namespace-specific `deploy-review-testing` or `deploy-review-prod` Helm diff artifact. Review that diff before approving.
@@ -126,9 +128,13 @@ PKB_E2E_NAMESPACE=testing PKB_E2E_BASE_URL=http://127.0.0.1:18080 \
 
 The script accepts only loopback URLs and `testing` as the namespace. It supplies BAS's internal Host and ingress scheme metadata over the authenticated Kubernetes TLS tunnel; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
 
-### Verification evidence (2026-10-24)
+### Activation evidence (2026-10-25)
 
-Local CI classifier, pipeline dependency and E2E prerequisite tests passed through `./gradlew test`. A verified, non-staff synthetic account was created in testing BAS and its credentials were saved to GitHub's `testing` environment. The live deployed suite reached BAS successfully: health/OpenAPI and unauthenticated-denial checks passed, while authenticated PKB checks failed with `401`. PKB logs identify an upstream BAS introspection `401`; a boolean-only BAS settings check confirms that `pkb-service` is absent from its internal-client registry. Production promotion must remain blocked until the directed PKB/BAS service credential configuration is repaired and this gate passes. No workload rollout or production credential mutation was performed for this change.
+Local CI classifier, pipeline dependency and E2E prerequisite tests passed through `./gradlew test`. Namespace-scoped CI credentials are installed in the matching GitHub `testing` and `prod` environments, with cross-namespace denial verified. Both manual-approval environments have required reviewers. Bounded CI tokens expire on 2027-10-24 and need rotation before then.
+
+A verified, non-staff synthetic account exists only in testing BAS; its credentials are stored in GitHub's `testing` environment. The approved directed PKB credential is configured in testing BAS and PKB. [BAS #9](https://github.com/Bio-Compass/bio-compass-auth/pull/9) adds the missing fixed introspection allowlist entry. Its build-only CI passed and its immutable 1.55.1 image is deployed to testing using the existing Helm chart 0.2.2 with image-only differences.
+
+The deployed suite then exposed a separate HTTP framing incompatibility: BAS rejects PKB's chunked JSON as an empty body, while fixed-length JSON succeeds. [PKB #69](https://github.com/Bio-Compass/pkb-service/pull/69) adds framework buffering and a real HTTP regression test; its complete local Gradle suite passes. Testing image rollout and a successful deployed E2E gate remain required. Production application rollout has not occurred and remains blocked by the test gate and separate manual approval.
 
 A companion [central architecture patch](architecture-sync/pkb-66-test-prod-promotion.patch) records the pipeline as **proposed**, preserves existing Helm ownership/manual production authorization, and includes release metadata. It is prepared for central-owner review; it has not been applied to the architecture repository.
 
@@ -240,5 +246,3 @@ Delete the baseline deployment:
 ```sh
 helm uninstall pkb-service -n bio-compass
 ```
-
-Manual dispatch of CI validates and publishes a candidate image without deploying it. Only pushes to `main` enter the testing-to-production promotion chain.
