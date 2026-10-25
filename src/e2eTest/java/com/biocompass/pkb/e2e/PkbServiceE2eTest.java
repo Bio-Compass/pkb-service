@@ -30,6 +30,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.springframework.http.HttpStatus;
 
 class PkbServiceE2eTest {
@@ -39,7 +40,9 @@ class PkbServiceE2eTest {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
-    private static final String baseUrl = setting("PKB_E2E_BASE_URL", "pkb.e2e.base-url", "http://localhost:8080");
+    private static final String baseUrl = (deployed()
+            ? System.getenv().getOrDefault("PKB_E2E_BASE_URL", "")
+            : setting("PKB_E2E_BASE_URL", "pkb.e2e.base-url", "http://localhost:8080")).replaceAll("/$", "");
     private static final String jdbcUrl = setting("PKB_E2E_DATASOURCE_URL", "pkb.e2e.datasource-url",
             setting("PKB_DATASOURCE_URL", "pkb.datasource-url", "jdbc:postgresql://localhost:5432/pkb"));
     private static final String jdbcUsername = setting("PKB_E2E_DATASOURCE_USERNAME", "pkb.e2e.datasource-username",
@@ -60,13 +63,20 @@ class PkbServiceE2eTest {
             setting("PKB_AUTH_INTROSPECTION_SERVICE_TOKEN", "pkb.auth.introspection.service-token", "pkb-local-introspection-secret"));
 
     private static HttpServer introspectionServer;
+    private static DeployedE2eSession deployedSession;
 
-    private final UUID ownerUserId = UUID.randomUUID();
+    private UUID ownerUserId = UUID.randomUUID();
     private final UUID otherUserId = UUID.randomUUID();
     private final UUID staffUserId = UUID.randomUUID();
 
     @BeforeAll
     static void serviceIsReachable() throws Exception {
+        if (deployed()) {
+            DeployedE2eSession.validate(System.getenv());
+            waitForHealthyService();
+            deployedSession = DeployedE2eSession.login(System.getenv(), httpClient);
+            return;
+        }
         startIntrospectionServer();
         waitForHealthyService();
         try (var connection = connection()) {
@@ -84,12 +94,18 @@ class PkbServiceE2eTest {
 
     @BeforeEach
     void resetE2eData() throws SQLException {
-        deleteThisTestData();
+        if (deployed()) {
+            ownerUserId = deployedSession.userId();
+        } else {
+            deleteThisTestData();
+        }
     }
 
     @AfterEach
     void cleanupE2eData() throws SQLException {
-        deleteThisTestData();
+        if (!deployed()) {
+            deleteThisTestData();
+        }
     }
 
     @Test
@@ -106,6 +122,9 @@ class PkbServiceE2eTest {
         assertThat(readiness.statusCode()).isEqualTo(200);
         assertThat(readiness.jsonObject()).containsEntry("status", "UP");
         assertThat(info.statusCode()).isEqualTo(200);
+        var openapi = get("/v3/api-docs");
+        assertThat(openapi.statusCode()).isEqualTo(200);
+        assertThat(((Map<?, ?>) openapi.jsonObject().get("paths")).containsKey("/api/pkb/items")).isTrue();
     }
 
     @Test
@@ -117,6 +136,28 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    void returnsOnlyTheAuthenticatedUsersItems() throws Exception {
+        var response = get(itemsPath(ownerUserId), ownerUserId);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.jsonArray()).allSatisfy(item ->
+                assertThat(item).containsEntry("userId", ownerUserId.toString()));
+    }
+
+    @Test
+    void deniesSearchForAnotherUser() throws Exception {
+        var response = get(itemsPath(UUID.randomUUID()), ownerUserId);
+        assertThat(response.statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    void reportsMissingOwnedItem() throws Exception {
+        var response = get("/api/pkb/items/" + UUID.randomUUID() + "?userId=" + ownerUserId, ownerUserId);
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.jsonObject()).containsEntry("code", "pkb_item_not_found");
+    }
+
+    @Test
+    @Tag("local-fixture")
     void returnsUserScopedItemById() throws Exception {
         var item = SeedItem.observation(ownerUserId, "e2e-lookup", "hydration", "Water intake", observed("10:15:00"));
         insertItem(item);
@@ -143,6 +184,7 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    @Tag("local-fixture")
     void reportsMissingOwnedItemWithoutLeakingOtherUsersData() throws Exception {
         var otherUsersItem = SeedItem.observation(otherUserId, "e2e-other-owner", "hydration", "Other user", observed("09:00:00"));
         insertItem(otherUsersItem);
@@ -157,6 +199,7 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    @Tag("local-fixture")
     void enforcesUserScopeAuthorization() throws Exception {
         var item = SeedItem.observation(ownerUserId, "e2e-authz", "hydration", "Owner data", observed("10:00:00"));
         insertItem(item);
@@ -172,6 +215,7 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    @Tag("local-fixture")
     void searchesUserItemsWithFiltersSortingAndPagination() throws Exception {
         var olderMatch = SeedItem.observation(ownerUserId, "e2e-search-older", "hydration", "Hydration before run", observed("08:00:00"));
         var newerMatch = SeedItem.observation(ownerUserId, "e2e-search-newer", "hydration", "Hydration after run", observed("12:00:00"));
@@ -220,6 +264,7 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    @Tag("local-fixture")
     void canonicalSearchFiltersHaveEquivalentCaseWhitespaceAndPaginationResults() throws Exception {
         var older = SeedItem.observation(ownerUserId, "e2e-case-older", "hydration", "Hydration older", observed("08:00:00"));
         var newer = SeedItem.observation(ownerUserId, "e2e-case-newer", "hydration", "Hydration newer", observed("09:00:00"));
@@ -263,6 +308,7 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    @Tag("local-fixture")
     void searchesByValidityWindowAndReturnsEmptyResultWhenNoItemsMatch() throws Exception {
         var currentlyValid = SeedItem.observation(ownerUserId, "e2e-valid-current", "hydration", "Current", observed("10:00:00"))
                 .withValidity(observed("09:00:00"), observed("11:00:00"));
@@ -301,6 +347,7 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    @Tag("local-fixture")
     void acceptsKafkaWriteCommandAndAppliesItOnlyOnceWhenRetried() throws Exception {
         var commandId = UUID.randomUUID();
         var sourceId = "e2e-kafka-command-" + commandId;
@@ -361,6 +408,7 @@ class PkbServiceE2eTest {
     }
 
     @Test
+    @Tag("local-fixture")
     void supersessionEndpointCommitsReciprocalLinksAndProvenance() throws Exception {
         var original = SeedItem.observation(ownerUserId, "e2e-supersession-original", "note",
                 "Original observation", observed("10:15:00"));
@@ -408,11 +456,7 @@ class PkbServiceE2eTest {
             }
             Thread.sleep(1_000);
         }
-        fail("""
-                PKB service is not healthy at %s.
-                Start it with:
-                ./gradlew bootRun --args='--spring.profiles.active=local'
-                """.formatted(baseUrl), lastException);
+        fail("PKB service did not become healthy at " + baseUrl, lastException);
     }
 
     private static void verifyOpaqueTokenAuthentication() throws Exception {
@@ -530,7 +574,21 @@ class PkbServiceE2eTest {
         }
     }
 
+    private static boolean deployed() {
+        var target = System.getProperty("pkb.e2e.target", "local");
+        if (!target.equals("local") && !target.equals("testing")) {
+            throw new IllegalArgumentException("Unsupported E2E target");
+        }
+        return target.equals("testing");
+    }
+
     private static String tokenFor(UUID userId, boolean staff) {
+        if (deployed()) {
+            if (staff || !userId.equals(deployedSession.userId())) {
+                throw new IllegalArgumentException("Testing E2E uses only its dedicated non-staff account");
+            }
+            return deployedSession.accessToken();
+        }
         return (staff ? "e2e-staff-" : "e2e-user-") + userId;
     }
 
@@ -668,6 +726,9 @@ class PkbServiceE2eTest {
     }
 
     private static Connection connection() throws SQLException {
+        if (deployed()) {
+            throw new IllegalStateException("Direct database fixtures are local-only");
+        }
         return DriverManager.getConnection(jdbcUrl, jdbcUsername, jdbcPassword);
     }
 

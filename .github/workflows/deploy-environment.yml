@@ -21,8 +21,6 @@ jobs:
     environment: ${{ inputs.environment }}
     env:
       KUBECONFIG: /home/runner/.kube/pkb-ci-config
-    outputs:
-      requires-approval: ${{ steps.classify.outputs.requires-approval }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/prepare-deploy
@@ -75,7 +73,7 @@ jobs:
   approve:
     name: Approve ${{ inputs.environment }} deployment
     needs: plan
-    if: inputs.environment == 'prod' || needs.plan.outputs.requires-approval == 'true'
+    if: inputs.environment == 'prod'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
@@ -95,7 +93,7 @@ jobs:
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' &&
       (needs.approve.result == 'success' ||
-      (inputs.environment == 'testing' && needs.plan.outputs.requires-approval == 'false' && needs.approve.result == 'skipped'))
+      (inputs.environment == 'testing' && needs.approve.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: ${{ inputs.environment }}

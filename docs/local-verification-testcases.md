@@ -124,13 +124,22 @@ Add concrete local service testcases here as features land:
 
 | ID | Check | Expected result |
 | --- | --- | --- |
-| CI-001 | `./gradlew testCiScripts --no-daemon` | Workflow dependency/immutable artifact checks and E2E failure-path tests pass. |
-| CI-002 | Run `.github/scripts/deployed-e2e.py` through the testing namespace port forwards, with dedicated BAS credentials | Real login, scoped PKB reads, input validation, missing-item and auth-denial assertions pass; no SQL/stub/production fixtures are used. |
+| CI-001 | `./gradlew testCiScripts --no-daemon` | Workflow dependency/immutable artifact checks pass; `./gradlew e2eConfigurationTest --no-daemon` covers deployed Java target/login failure paths and is included in `test`. |
+| CI-002 | Run `./gradlew deployedE2eTest --no-daemon` through the testing namespace port forwards, with dedicated BAS credentials | Real login, scoped PKB reads, input validation, missing-item and auth-denial assertions pass; no SQL/stub/production fixtures are used. |
 | CI-003 | Failed/skipped/cancelled `e2e-testing` | `deploy-prod` never runs. Missing testing secrets and BAS introspection errors are failures, not skips. |
 | CI-004 | Successful test gate and production promotion review | Production uses exactly the testing image digest and pinned Helm revision, waits for manual approval, then verifies rollout/image/readiness. |
 | CI-005 | Namespace credentials | Testing/prod credentials can deploy and port-forward only in their own namespace; legacy `bio-compass` credentials fail preflight. |
 
 See the [deployment guide](kubernetes-vm-deployment.md#github-actions-testing-before-production) for prerequisites, current runtime blockers, and the companion proposed architecture patch.
+
+### Shared Java E2E targets (#66)
+
+- `e2eTest`: existing `PkbServiceE2eTest` in local mode, including tagged SQL fixtures, BAS stub, Kafka write/deduplication and supersession checks.
+- `deployedE2eTest`: the same class in testing mode, real BAS login, shared health/OpenAPI/authentication/authorization/validation/search/missing-item checks. Tagged local fixtures are excluded and database access is rejected; no SQL account or staff account is needed.
+- `e2eConfigurationTest`: namespace/loopback/credential validation, real HTTP login and verified identity handling, redirect denial and private error diagnostics. Runs as part of `test`.
+- CI manual `verify-testing=true`: runs the Java suite on the existing testing release with GitHub environment secrets, uploads the Gradle report, and skips image publication, deployments and production promotion. A failed Java E2E gate remains a failed workflow.
+
+The Python deployed suite was removed. Both targets reuse Java API assertions; deployed read checks do not claim the local-only write-path coverage.
 
 ## BAS introspection HTTP framing (#68)
 

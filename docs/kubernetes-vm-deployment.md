@@ -80,15 +80,17 @@ The job sequence is:
 
 1. `test` and local `e2e-test` validate the source.
 2. `publish-image` publishes and records the immutable image and Helm revision.
-3. `deploy-testing` plans the `testing` namespace diff, requests approval for non-image changes, then invokes the existing Helm-owned `scripts/deploy.sh testing pkb-service <tag@digest>` with `DEPLOY_SOURCE=local` at the pinned commit. It waits for rollout, verifies the image and checks readiness.
-4. `e2e-testing` runs `.github/scripts/deployed-e2e.py` against the deployed testing PKB and BAS through namespace-scoped Kubernetes port forwards. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
+3. `deploy-testing` plans and records the `testing` namespace diff, then automatically invokes the existing Helm-owned `scripts/deploy.sh testing pkb-service <tag@digest>` with `DEPLOY_SOURCE=local` at the pinned commit. It waits for rollout, verifies the image and checks readiness.
+4. `e2e-testing` runs `./gradlew deployedE2eTest --no-daemon` using the existing Java E2E class against the deployed testing PKB and BAS through namespace-scoped Kubernetes port forwards. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
 5. `deploy-prod` is eligible only after testing E2E succeeds. It plans the production diff, always requires the `prod-manual-approval` environment, and deploys the same immutable image through Helm-owned machinery using `values/prod/pkb-service.yaml`.
 
 Failed, cancelled or skipped testing jobs cannot promote production. Main-branch runs are serialized without cancelling a deployment already in progress. Helm source and values are read from `Bio-Compass/bio-compass-helm` (overridable with `PKB_SERVICE_HELM_VALUES_REPOSITORY` and `PKB_SERVICE_HELM_VALUES_REF`). This service does not change Helm-owned scripts or charts.
 
+Manual dispatch of CI validates and publishes a candidate image without deploying it. Only pushes to `main` enter the testing-to-production promotion chain.
+
 ### GitHub environment setup
 
-Create GitHub environments `testing`, `prod`, `testing-manual-approval`, and `prod-manual-approval`. Configure required reviewers on both approval environments. The workflow checks that reviewers exist and fails closed if the approval environment is unprotected. The approval URL links to the workflow run with a namespace-specific `deploy-review-testing` or `deploy-review-prod` Helm diff artifact. Review that diff before approving.
+Create GitHub environments `testing`, `prod`, and `prod-manual-approval`. Testing deploys automatically after CI validation, as authorized by the project owner. Configure required reviewers on `prod-manual-approval`. The workflow checks that reviewers exist and fails closed if the approval environment is unprotected. The approval URL links to the workflow run with a namespace-specific `deploy-review-testing` or `deploy-review-prod` Helm diff artifact. Review that diff before approving.
 
 Each runtime environment needs its own `KUBE_CONFIG` secret. Credentials must access only the matching namespace. The legacy repository credential scoped to `bio-compass` cannot deploy to either new namespace. Configure `BIO_COMPASS_HELM_VALUES_SSH_KEY` as the existing repository-scoped read-only Helm deploy key. Application/database/S3 secrets remain in the namespace's existing `pkb-service-secrets`; the pipeline never re-renders them from legacy `dev` secrets. Helm environment values must use `secrets.create=false` and reference the existing Secret. Rendered Secret resources cause CI to fail.
 
@@ -108,7 +110,7 @@ Applying RBAC, creating namespace-scoped tokens and storing each kubeconfig in t
 
 ### Deployed E2E coverage and local replay
 
-The deployed suite covers readiness/liveness, OpenAPI availability, real BAS login, authenticated user-scoped PKB search, rejection of unauthenticated/invalid tokens, cross-user denial, query validation and missing-item behavior. It is read-only against PKB; it does not seed SQL, install an introspection stub, or mutate production data. The existing Gradle `e2eTest` remains the broader isolated local suite, including Kafka write/deduplication tests. Deployed write-path coverage requires the environment's command-ingress/AU configuration and a separate fixture lifecycle; passing read E2E does not claim write-path verification.
+Both Gradle targets run the existing `PkbServiceE2eTest` class. `e2eTest` selects local mode with the BAS stub and SQL/Kafka fixtures. `deployedE2eTest` selects testing mode with real BAS login and excludes `local-fixture` tagged cases; direct database access is also rejected in this mode. The shared deployed checks cover readiness/liveness, OpenAPI availability, real BAS login, authenticated user-scoped PKB search, rejection of unauthenticated/invalid tokens, cross-user denial, query validation and missing-item behavior. It is read-only against PKB; it does not seed SQL, install an introspection stub, or mutate production data. The existing Gradle `e2eTest` remains the broader isolated local suite, including Kafka write/deduplication tests. Deployed write-path coverage requires the environment's command-ingress/AU configuration and a separate fixture lifecycle; passing read E2E does not claim write-path verification.
 
 For local replay, start port forwards in separate terminals:
 
@@ -121,14 +123,26 @@ Then run with the account credentials supplied privately in the environment:
 
 ```sh
 PKB_E2E_NAMESPACE=testing PKB_E2E_BASE_URL=http://127.0.0.1:18080 \
-  PKB_E2E_AUTH_URL=http://127.0.0.1:18081 python3 .github/scripts/deployed-e2e.py
+  PKB_E2E_AUTH_URL=http://127.0.0.1:18081 ./gradlew deployedE2eTest --no-daemon
 ```
 
-The script accepts only loopback URLs and `testing` as the namespace. It supplies BAS's internal Host and ingress scheme metadata over the authenticated Kubernetes TLS tunnel; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
+The testing target accepts only loopback URLs and `testing` as the namespace. It supplies BAS's internal Host and ingress scheme metadata over the authenticated Kubernetes TLS tunnel; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
 
-### Verification evidence (2026-10-24)
+For verification using existing GitHub testing secrets, dispatch CI on the reviewed branch with `verify-testing=true`:
 
-Local CI classifier, pipeline dependency and E2E prerequisite tests passed through `./gradlew test`. A verified, non-staff synthetic account was created in testing BAS and its credentials were saved to GitHub's `testing` environment. The live deployed suite reached BAS successfully: health/OpenAPI and unauthenticated-denial checks passed, while authenticated PKB checks failed with `401`. PKB logs identify an upstream BAS introspection `401`; a boolean-only BAS settings check confirms that `pkb-service` is absent from its internal-client registry. Production promotion must remain blocked until the directed PKB/BAS service credential configuration is repaired and this gate passes. No workload rollout or production credential mutation was performed for this change.
+```sh
+gh workflow run ci.yml --ref codex/pkb-66-test-prod-promotion -f verify-testing=true
+```
+
+This mode runs Java E2E against the existing testing release and uploads Gradle XML/HTML reports. It publishes no image and performs no deployment or production promotion. Normal pushes to `main` still deploy testing first and promote only after the Java E2E gate succeeds. `./gradlew e2eConfigurationTest --no-daemon` validates target/credential rules and real HTTP login failure paths without cluster access; it is included in `test`.
+
+### Activation evidence (2026-10-25)
+
+Local CI classifier, pipeline dependency and E2E prerequisite tests passed through `./gradlew test`. Namespace-scoped CI credentials are installed in the matching GitHub `testing` and `prod` environments, with cross-namespace denial verified. Production approval has required reviewers; testing has no manual deployment gate. Bounded CI tokens expire on 2027-10-24 and need rotation before then.
+
+A verified, non-staff synthetic account exists only in testing BAS; its credentials are stored in GitHub's `testing` environment. The approved directed PKB credential is configured in testing BAS and PKB. [BAS #9](https://github.com/Bio-Compass/bio-compass-auth/pull/9) adds the missing fixed introspection allowlist entry. Its build-only CI passed and its immutable 1.55.1 image is deployed to testing using the existing Helm chart 0.2.2 with image-only differences.
+
+The deployed suite then exposed a separate HTTP framing incompatibility: BAS rejects PKB's chunked JSON as an empty body, while fixed-length JSON succeeds. [PKB #69](https://github.com/Bio-Compass/pkb-service/pull/69) adds framework buffering and a real HTTP regression test; its complete local Gradle suite passes. The immutable candidate from [CI run 40186346591](https://github.com/Bio-Compass/pkb-service/actions/runs/40186346591), source `1dc6bf6acec484d755c9b177bc9fc06d3f781dbb`, digest `sha256:db93ef0854dc6898d752ada97288b0eafa9e3eecd4d826f574db240b2a8e2b06`, was deployed to testing through the existing Helm chart 0.2.1 at pinned Helm commit `9e6aec8646621c5729d5194f34d2cd2291ed0b77`. The resource comparison showed only the PKB Deployment image changed; Helm revision 2 and actual image identity were verified. All deployed read E2E checks passed against real testing BAS/PKB. Temporary port forwards were closed after verification. Production application rollout has not occurred and remains blocked by the test gate and separate manual approval.
 
 A companion [central architecture patch](architecture-sync/pkb-66-test-prod-promotion.patch) records the pipeline as **proposed**, preserves existing Helm ownership/manual production authorization, and includes release metadata. It is prepared for central-owner review; it has not been applied to the architecture repository.
 
@@ -240,5 +254,3 @@ Delete the baseline deployment:
 ```sh
 helm uninstall pkb-service -n bio-compass
 ```
-
-Manual dispatch of CI validates and publishes a candidate image without deploying it. Only pushes to `main` enter the testing-to-production promotion chain.
