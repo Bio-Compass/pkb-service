@@ -140,14 +140,21 @@ tasks.register('e2eConfigurationTest', Test) {
     systemProperty 'jdk.httpclient.allowRestrictedHeaders', 'host'
 }
 
-tasks.register('testCiScripts', Exec) {
-    description = 'Runs tests for GitHub Actions deployment scripts.'
-    group = 'verification'
-    commandLine 'bash', '.github/scripts/test-ci-scripts.sh'
+registerFocusedTest('testCiScripts', 'Runs Java CI workflow and deployment-classifier regression tests.', [
+        'com.biocompass.pkb.infrastructure.DeploymentWorkflowTest',
+        'com.biocompass.pkb.infrastructure.DeployChangeClassifierTest'
+])
+
+// These tests read CI sources outside the usual Java classpath.
+// A workflow-only edit must invalidate both the full and focused test results.
+tasks.withType(Test).matching { it.name in ['test', 'testCiScripts'] }.configureEach {
+    inputs.files(fileTree('.github') {
+        include 'workflows/*.yml', 'scripts/*.java'
+    }).withPropertyName('ciVerificationSources').withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.named('test') {
-    dependsOn tasks.named('testCiScripts'), tasks.named('e2eConfigurationTest')
+    dependsOn tasks.named('e2eConfigurationTest')
 }
 
 tasks.register('fullVerification') {
