@@ -131,3 +131,11 @@ Add concrete local service testcases here as features land:
 | CI-005 | Namespace credentials | Testing/prod credentials can deploy and port-forward only in their own namespace; legacy `bio-compass` credentials fail preflight. |
 
 See the [deployment guide](kubernetes-vm-deployment.md#github-actions-testing-before-production) for prerequisites, current runtime blockers, and the companion proposed architecture patch.
+
+## BAS introspection HTTP framing (#68)
+
+| ID | Verification | Expected result |
+| --- | --- | --- |
+| AUTH-TRANSPORT-001 | `./gradlew test --tests com.biocompass.pkb.auth.BioCompassTokenIntrospectionClientTest --no-daemon` | Spring-managed client sends the exact token JSON with its UTF-8 Content-Length and no chunked transfer encoding to a real HTTP server. Active/inactive and credential rejection behavior remain covered. |
+
+BAS on the testing cluster requires fixed-length JSON requests. Spring buffers the small introspection payload before transmission; service credentials, response parsing, and configured connect/read timeouts are preserved.

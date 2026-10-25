@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.security.oauth2.server.resource.introspection.OAuth2IntrospectionException;
 import org.springframework.web.client.RestClient;
 
@@ -27,6 +28,9 @@ class BioCompassTokenIntrospectionClientTest {
     private final AtomicReference<String> serviceHeader = new AtomicReference<>();
     private final AtomicReference<String> requestBody = new AtomicReference<>();
 
+    private final AtomicReference<String> contentLength = new AtomicReference<>();
+    private final AtomicReference<String> transferEncoding = new AtomicReference<>();
+
     private HttpServer server;
     private URI introspectionUrl;
 
@@ -36,6 +40,8 @@ class BioCompassTokenIntrospectionClientTest {
         server.createContext("/api/v1/internal/auth/token/introspect/", exchange -> {
             authorizationHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
             serviceHeader.set(exchange.getRequestHeaders().getFirst("X-BioCompass-Service"));
+            contentLength.set(exchange.getRequestHeaders().getFirst("Content-Length"));
+            transferEncoding.set(exchange.getRequestHeaders().getFirst("Transfer-Encoding"));
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             var body = responseBody.get().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
@@ -67,6 +73,26 @@ class BioCompassTokenIntrospectionClientTest {
         assertThat(authorizationHeader.get()).isEqualTo("Bearer service-secret");
         assertThat(serviceHeader.get()).isEqualTo("pkb-service");
         assertThat(requestBody.get()).contains("\"token\":\"user-access-token\"");
+    }
+
+    @Test
+    void sendsFixedLengthJsonToBasThroughTheSpringManagedClient() {
+        new ApplicationContextRunner()
+                .withBean(PkbAuthProperties.class, () -> new PkbAuthProperties(
+                        new PkbAuthProperties.Introspection(introspectionUrl, "pkb-service", "service-secret", 5),
+                        "self"))
+                .withBean(RestClient.Builder.class, RestClient::builder)
+                .withBean(BioCompassTokenIntrospectionClient.class)
+                .run(context -> {
+                    var response = context.getBean(BioCompassTokenIntrospectionClient.class)
+                            .introspect("opaque-access-token");
+
+                    assertThat(response.active()).isTrue();
+                    assertThat(requestBody.get()).isEqualTo("{\"token\":\"opaque-access-token\"}");
+                    assertThat(contentLength.get()).isEqualTo(
+                            String.valueOf(requestBody.get().getBytes(StandardCharsets.UTF_8).length));
+                    assertThat(transferEncoding.get()).isNull();
+                });
     }
 
     @Test
