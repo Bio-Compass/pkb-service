@@ -7,6 +7,9 @@ inputs:
   image-ref:
     required: true
     description: CI image tag followed by its immutable digest
+  helm-repository:
+    required: true
+    description: Helm repository resolved by the calling workflow
   helm-revision:
     required: true
     description: Immutable Helm repository commit
@@ -46,7 +49,7 @@ runs:
         kubectl auth can-i patch deployments -n "${TARGET_ENVIRONMENT}" | grep -qx yes
     - uses: actions/checkout@v6
       with:
-        repository: ${{ vars.PKB_SERVICE_HELM_VALUES_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
+        repository: ${{ inputs.helm-repository }}
         ref: ${{ inputs.helm-revision }}
         path: helm-source
         ssh-key: ${{ inputs.helm-ssh-key }}

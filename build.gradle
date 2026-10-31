@@ -166,7 +166,7 @@ registerFocusedTest('testCiScripts', 'Runs Java CI workflow and deployment-class
 // A workflow-only edit must invalidate both the full and focused test results.
 tasks.withType(Test).matching { it.name in ['test', 'testCiScripts'] }.configureEach {
     inputs.files(fileTree('.github') {
-        include 'workflows/*.yml', 'scripts/*.java'
+        include 'workflows/*.yml', 'scripts/*.java', 'actions/**/action.yml', 'actions/**/action.yaml'
     }, fileTree('deploy/kubernetes/e2e')).withPropertyName('ciVerificationSources').withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
