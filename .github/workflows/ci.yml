@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       verify-testing:
-        description: Run Java E2E against existing testing without publishing or deploying an image
+        description: Run an E2E Job against existing testing without deploying the application
         type: boolean
         default: false
   push:
@@ -204,9 +204,12 @@ jobs:
       (needs.deploy-testing.result == 'success' ||
       (github.event_name == 'workflow_dispatch' && inputs.verify-testing))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     needs: deploy-testing
     environment: testing
+    permissions:
+      contents: read
+      packages: write
     env:
       KUBECONFIG: /home/runner/.kube/pkb-ci-config
     steps:
@@ -225,28 +228,38 @@ jobs:
           mkdir -p "$(dirname "${KUBECONFIG}")"
           test -n "${KUBE_CONFIG}"
           printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
-      - name: Test deployed API through namespace-scoped port forwards
+      - name: Assemble Java E2E runner
+        run: ./gradlew prepareE2eRunner --no-daemon
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish source-matched test runner
+        id: runner-image
+        uses: docker/build-push-action@v6
+        with:
+          context: build/e2e-runner
+          file: deploy/kubernetes/e2e/Dockerfile
+          push: true
+          tags: ghcr.io/bio-compass/pkb-service-e2e:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          build-args: SOURCE_REVISION=${{ github.sha }}
+      - name: Run Java E2E Job on the internal testing network
         env:
           PKB_E2E_USERNAME: ${{ secrets.PKB_E2E_USERNAME }}
           PKB_E2E_PASSWORD: ${{ secrets.PKB_E2E_PASSWORD }}
-          PKB_E2E_BASE_URL: http://127.0.0.1:18080
-          PKB_E2E_AUTH_URL: http://127.0.0.1:18081
           PKB_E2E_NAMESPACE: testing
-        run: |
-          kubectl -n testing port-forward --address 127.0.0.1 service/pkb-service 18080:80 > "${RUNNER_TEMP}/pkb-forward.log" 2>&1 &
-          pkb_pid=$!
-          kubectl -n testing port-forward --address 127.0.0.1 service/bio-compass-auth 18081:80 > "${RUNNER_TEMP}/bas-forward.log" 2>&1 &
-          bas_pid=$!
-          trap 'kill "${pkb_pid}" "${bas_pid}" 2>/dev/null || true' EXIT
-          ./gradlew deployedE2eTest --no-daemon
+          PKB_E2E_RUNNER_IMAGE: ghcr.io/bio-compass/pkb-service-e2e@${{ steps.runner-image.outputs.digest }}
+        run: java src/ci/java/com/biocompass/pkb/ci/RunClusterE2e.java
+      - name: Clean up temporary testing Job
+        if: always()
+        run: kubectl -n testing delete job "pkb-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --ignore-not-found --cascade=foreground --wait=true --timeout=30s
       - name: Upload deployed Java E2E reports
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: pkb-deployed-e2e-report
-          path: |
-            build/reports/tests/deployedE2eTest
-            build/test-results/deployedE2eTest
+          path: build/reports/cluster-e2e
           if-no-files-found: ignore
       - name: Remove Kubernetes credentials
         if: always()

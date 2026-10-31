@@ -76,6 +76,19 @@ class DeployedE2eSessionTest {
     }
 
     @Test
+    void acceptsOnlyExactInternalServiceUrlsInClusterMode() {
+        environment.put("PKB_E2E_ACCESS_MODE", "cluster");
+        environment.put("PKB_E2E_BASE_URL", "http://pkb-service");
+        environment.put("PKB_E2E_AUTH_URL", "http://bio-compass-auth");
+        DeployedE2eSession.validate(environment);
+        for (var url : new String[]{"http://bio-compass-auth.prod", "http://bas.beta.biocompass.help",
+                "http://127.0.0.1:18081", "http://bio-compass-auth:8080"}) {
+            environment.put("PKB_E2E_AUTH_URL", url);
+            assertThatThrownBy(() -> DeployedE2eSession.validate(environment)).hasMessageContaining("exact testing");
+        }
+    }
+
+    @Test
     void requiresAccountCredentials() {
         environment.put("PKB_E2E_PASSWORD", " ");
         assertThatThrownBy(() -> DeployedE2eSession.login(environment, client)).hasMessageContaining("PKB_E2E_PASSWORD");

@@ -39,7 +39,7 @@ class DeploymentWorkflowTest {
     }
 
     @Test
-    void manualVerificationUsesJavaAgainstExistingTestingWithoutPublishingOrDeploying() {
+    void manualVerificationUsesClusterJobWithoutPublishingOrDeployingTheApplication() {
         assertThat(job(ci, "deploy-testing").get("if"))
                 .isEqualTo("github.event_name == 'push' && github.ref == 'refs/heads/main'");
         assertThat(job(ci, "publish-image").get("if").toString())
@@ -47,7 +47,8 @@ class DeploymentWorkflowTest {
         assertThat(job(ci, "e2e-testing").get("if").toString())
                 .contains("github.event_name == 'workflow_dispatch' && inputs.verify-testing");
         assertThat(commands(job(ci, "e2e-testing")))
-                .contains("./gradlew deployedE2eTest --no-daemon");
+                .contains("./gradlew prepareE2eRunner --no-daemon", "java src/ci/java/com/biocompass/pkb/ci/RunClusterE2e.java")
+                .doesNotContain("port-forward");
     }
 
     @Test

@@ -1,34 +1,33 @@
 --- a/README.md
 +++ b/README.md
-@@ -3,1 +3,1 @@
--**Current documentation release:** 1.14.2
-+**Current documentation release:** 1.14.3
+@@ -3 +3 @@
+-**Current documentation release:** 1.14.3
++**Current documentation release:** 1.14.4
 --- a/VERSION
 +++ b/VERSION
-@@ -1,1 +1,1 @@
--1.14.2
-+1.14.3
+@@ -1 +1 @@
+-1.14.3
++1.14.4
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,0 +2,4 @@
 +
-+## 1.14.3 — Proposed PKB testing-to-production promotion
++## 1.14.4 — Proposed PKB in-cluster testing gate
 +
-+- Record the proposed PKB-specific deployed testing E2E prerequisite for production promotion; manual production authorization and Helm ownership stay in force. Implementation and activation evidence belong to PKB issue 66.
++- Propose a service-owned Java E2E Job on the private testing network before PKB production promotion, preserving Helm ownership and explicit production approval. Implementation/evidence remain in PKB issue 66.
 --- a/docs/decisions/project-decision-log.md
 +++ b/docs/decisions/project-decision-log.md
-@@ -1561,0 +1562,14 @@
-+
+@@ -1582,0 +1583,13 @@
 +
 +---
 +
-+<a id="decision-20261024-pkb-promotion"></a>
-+## 2026-10-24 — PKB deployed testing E2E before production promotion
++<a id="decision-20261031-pkb-promotion"></a>
++## 2026-10-31 — PKB in-cluster testing E2E before production promotion
 +
-+**Status:** Proposed; requested for PKB in [issue 66](https://github.com/Bio-Compass/pkb-service/issues/66). Project-owner review and production deployment approval remain required. This does not amend accepted platform ownership or assert activation.
++**Status:** Proposed; implementation requested by the PKB owner in [issue 66](https://github.com/Bio-Compass/pkb-service/issues/66). This records a PKB-specific proposal, not project-wide acceptance or production deployment authority.
 +
-+**Proposal:** PKB CI builds one immutable application image and pins one Helm repository revision. It automatically deploys that selection to the testing environment without a manual approval gate, runs service-owned E2E against the deployed service with real BAS authentication, and offers production promotion of the same image only after E2E succeeds. Production promotion retains explicit manual authorization; failed, skipped, or cancelled testing gates cannot authorize production.
++**Proposal:** PKB CI builds one immutable application image and pins one Helm revision, deploys testing automatically, then runs the existing Java API E2E suite as a temporary Job in the testing namespace. The Job reaches PKB and BAS through private Kubernetes service discovery; PKB needs no public ingress. The CI-selected test-runner image is immutable and built from the same source revision as the tests. Production promotion of the application image remains eligible only after successful E2E and explicit manual production approval; failed, skipped or cancelled gates cannot authorize it.
 +
-+Helm remains authoritative for chart, environment values, existing-secret configuration, deployment and rollback machinery. PKB owns its CI dependency graph and API acceptance suite. A synthetic non-staff testing account is test data, not production identity or a substitute authority service. Per-environment credentials are isolated. Exact namespace names, setup commands, gate coverage, and dated validation evidence belong in the [PKB deployment guide](https://github.com/Bio-Compass/pkb-service/blob/codex/pkb-66-test-prod-promotion/docs/kubernetes-vm-deployment.md), not the central architecture.
++The test pod receives only the dedicated testing account credentials and no Kubernetes API token. CI owns Job creation, result retrieval and cleanup; credentials are Job-owned and removed with it, with a bounded deadline and TTL as fallback. Port forwarding remains available for operator/local verification. Exact manifests, endpoints, credential lifecycle and dated evidence belong in the [PKB deployment guide](https://github.com/Bio-Compass/pkb-service/blob/codex/pkb-66-test-prod-promotion/docs/kubernetes-vm-deployment.md).
 +
-+**Open fork:** approval and activation of this service-specific pipeline do not make automatic production deployment a cross-service default. The accepted separately authorized promotion model remains in force.
++Helm retains ownership of shared charts, environment values and application rollout/rollback machinery. PKB owns its test runner and CI gate; this proposal changes no shared Helm implementation, service API, BAS authority, or production authorisation boundary.
