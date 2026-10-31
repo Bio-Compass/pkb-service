@@ -29,6 +29,12 @@ spring:
 
 biocompass:
   pkb:
+    records:
+      service-tokens:
+        biocompass-watertracker-service: ${PKB_RECORD_BWTS_SERVICE_TOKEN:}
+      authority-url: ${PKB_RECORD_AUTHORITY_URL:}
+      authority-service-token: ${PKB_RECORD_AUTHORITY_SERVICE_TOKEN:}
+      timeout: ${PKB_RECORD_TIMEOUT:5s}
     eventing:
       enabled: ${PKB_EVENTING_ENABLED:false}
       relay-interval: ${PKB_EVENTING_RELAY_INTERVAL:PT1S}

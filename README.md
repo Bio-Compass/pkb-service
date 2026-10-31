@@ -119,3 +119,17 @@ To stop containers and delete local volumes:
 ```sh
 docker compose down -v
 ```
+
+## Client-neutral source records (PKB #62)
+
+The [generic record API](docs/pkb_record_api.md) supports BWTS storage while keeping PKB
+independent of mobile, browser, Telegram and other clients. It uses separate workload
+authentication, BAS backend authority verification, and AU enforcement. The existing
+asynchronous command ingress remains unchanged. Enable only after the companion BAS/BWTS
+changes and policy/edge configuration have been reviewed; this branch makes no deployment claim.
+
+Local BWTS-to-PKB verification: build `bootJar`, then run
+`manual_tests/verify_bwts_pkb.py` with the BWTS external Python environment, `--bwts-checkout`,
+`--pkb-jar`, `--evidence-dir` and disposable `PKB_TEST_DATABASE_URL`,
+`PKB_TEST_DATABASE_USER`, `PKB_TEST_DATABASE_PASSWORD`. The harness uses real PKB/PostgreSQL
+and explicit BAS/BUPS/AU contract doubles.
