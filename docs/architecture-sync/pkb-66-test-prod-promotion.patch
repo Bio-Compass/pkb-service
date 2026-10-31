@@ -1,0 +1,33 @@
+--- a/README.md
++++ b/README.md
+@@ -3 +3 @@
+-**Current documentation release:** 1.14.3
++**Current documentation release:** 1.14.4
+--- a/VERSION
++++ b/VERSION
+@@ -1 +1 @@
+-1.14.3
++1.14.4
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,0 +2,4 @@
++
++## 1.14.4 — Proposed PKB in-cluster testing gate
++
++- Propose a service-owned Java E2E Job on the private testing network before PKB production promotion, preserving Helm ownership and explicit production approval. Implementation/evidence remain in PKB issue 66.
+--- a/docs/decisions/project-decision-log.md
++++ b/docs/decisions/project-decision-log.md
+@@ -1582,0 +1583,13 @@
++
++---
++
++<a id="decision-20261031-pkb-promotion"></a>
++## 2026-10-31 — PKB in-cluster testing E2E before production promotion
++
++**Status:** Proposed; implementation requested by the PKB owner in [issue 66](https://github.com/Bio-Compass/pkb-service/issues/66). This records a PKB-specific proposal, not project-wide acceptance or production deployment authority.
++
++**Proposal:** PKB CI builds one immutable application image and pins one Helm revision, deploys testing automatically, then runs the existing Java API E2E suite as a temporary Job in the testing namespace. The Job reaches PKB and BAS through private Kubernetes service discovery; PKB needs no public ingress. The CI-selected test-runner image is immutable and built from the same source revision as the tests. Production promotion of the application image remains eligible only after successful E2E and explicit manual production approval; failed, skipped or cancelled gates cannot authorize it.
++
++The test pod receives only the dedicated testing account credentials and no Kubernetes API token. CI owns Job creation, result retrieval and cleanup; credentials are Job-owned and removed with it, with a bounded deadline and TTL as fallback. Port forwarding remains available for operator/local verification. Exact manifests, endpoints, credential lifecycle and dated evidence belong in the [PKB deployment guide](https://github.com/Bio-Compass/pkb-service/blob/codex/pkb-66-test-prod-promotion/docs/kubernetes-vm-deployment.md).
++
++Helm retains ownership of shared charts, environment values and application rollout/rollback machinery. PKB owns its test runner and CI gate; this proposal changes no shared Helm implementation, service API, BAS authority, or production authorisation boundary.

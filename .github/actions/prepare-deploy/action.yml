@@ -1,0 +1,70 @@
+name: Prepare PKB deployment
+description: Check namespace access and pin the Helm-owned chart and values.
+inputs:
+  environment:
+    required: true
+    description: testing or prod
+  image-ref:
+    required: true
+    description: CI image tag followed by its immutable digest
+  helm-revision:
+    required: true
+    description: Immutable Helm repository commit
+  kubeconfig:
+    required: true
+    description: Namespace-scoped Kubernetes credentials
+  helm-ssh-key:
+    required: true
+    description: Read-only Helm repository deploy key
+runs:
+  using: composite
+  steps:
+    - name: Validate deployment inputs
+      shell: bash
+      env:
+        TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        IMAGE_REF: ${{ inputs.image-ref }}
+        HELM_REVISION: ${{ inputs.helm-revision }}
+      run: |
+        [[ "${TARGET_ENVIRONMENT}" == testing || "${TARGET_ENVIRONMENT}" == prod ]]
+        [[ "${IMAGE_REF}" =~ ^[a-zA-Z0-9_.-]+@sha256:[a-f0-9]{64}$ ]]
+        [[ "${HELM_REVISION}" =~ ^[a-f0-9]{40}$ ]]
+    - uses: azure/setup-kubectl@v4
+    - uses: azure/setup-helm@v4
+      with:
+        version: v3.19.2
+    - name: Configure namespace credentials
+      shell: bash
+      env:
+        KUBE_CONFIG: ${{ inputs.kubeconfig }}
+        TARGET_ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        umask 077
+        mkdir -p "$(dirname "${KUBECONFIG}")"
+        test -n "${KUBE_CONFIG}"
+        printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
+        kubectl auth can-i patch deployments -n "${TARGET_ENVIRONMENT}" | grep -qx yes
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ vars.PKB_SERVICE_HELM_VALUES_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
+        ref: ${{ inputs.helm-revision }}
+        path: helm-source
+        ssh-key: ${{ inputs.helm-ssh-key }}
+        persist-credentials: false
+    - name: Validate environment values
+      shell: bash
+      env:
+        TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: |
+        values_file="helm-source/values/${TARGET_ENVIRONMENT}/pkb-service.yaml"
+        test -f "${values_file}"
+        helm lint helm-source/charts/pkb-service -f "${values_file}" --set-string "image.tag=${IMAGE_REF}"
+        # Fail closed if values would replace existing environment credentials.
+        helm template pkb-service helm-source/charts/pkb-service \
+          -n "${TARGET_ENVIRONMENT}" -f "${values_file}" \
+          --set-string "image.tag=${IMAGE_REF}" --set-string 'image.digest=' > "${RUNNER_TEMP}/pkb-rendered.yaml"
+        if grep -q '^kind: Secret$' "${RUNNER_TEMP}/pkb-rendered.yaml"; then
+          echo 'Environment values must reference existing Secrets (secrets.create=false).' >&2
+          exit 1
+        fi
