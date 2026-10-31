@@ -54,21 +54,19 @@ public final class RunClusterE2e {
                     "Read tested PKB image");
             Files.writeString(reports.resolve("tested-image.txt"), image + "\n");
             long deadline = System.nanoTime() + timeout.toNanos();
-            while (System.nanoTime() < deadline) {
-                var state = require(commands.run(kubectl("get", "job", job, "-o",
-                        "jsonpath={.status.conditions[?(@.status==\"True\")].type}"), ""), "Read E2E Job status");
-                if (state.contains("Failed") || state.contains("FailureTarget")) {
-                    throw new IllegalStateException("Testing E2E Job failed; see job.log");
-                }
-                if (state.contains("Complete")) {
-                    complete = true;
-                    break;
-                }
-                Thread.sleep(1000);
+            // kubectl watches API events instead of repeatedly starting status requests.
+            var state = waitForJob(commands, job, "jsonpath={.status.conditions}", deadline);
+            if (state.contains("Failed") || state.contains("FailureTarget")) {
+                throw new IllegalStateException("Testing E2E Job failed; see job.log");
             }
-            if (!complete) {
-                throw new IllegalStateException("Testing E2E Job timed out");
+            if (!state.contains("Complete")) {
+                if (!state.contains("SuccessCriteriaMet")) {
+                    throw new IllegalStateException("Testing E2E Job returned an unexpected condition");
+                }
+                // SuccessCriteriaMet precedes Complete while Kubernetes terminates the pods.
+                waitForJob(commands, job, "condition=Complete", deadline);
             }
+            complete = true;
         } catch (Exception exception) {
             failure = exception;
         } finally {
@@ -98,6 +96,19 @@ public final class RunClusterE2e {
             throw failure;
         }
         System.out.println("Testing in-cluster Java E2E passed; Job and temporary credentials cleaned up.");
+    }
+
+    private static String waitForJob(Commands commands, String job, String condition, long deadline)
+            throws Exception {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw new IllegalStateException("Testing E2E Job timed out");
+        }
+        var wait = Duration.ofNanos(remaining);
+        var command = List.of("kubectl", "--namespace=testing", "--request-timeout=0", "wait", "job/" + job,
+                "--for=" + condition, "--timeout=" + wait.toMillis() + "ms", "-o",
+                "jsonpath={.status.conditions[?(@.status==\"True\")].type}");
+        return require(commands.run(command, "", wait.plusSeconds(15)), "Wait for E2E Job");
     }
 
     static String render(String template, Map<String, String> environment) {
@@ -184,7 +195,7 @@ public final class RunClusterE2e {
         return command;
     }
 
-    private static Result process(List<String> command, String input) throws Exception {
+    private static Result process(List<String> command, String input, Duration timeout) throws Exception {
         var output = Files.createTempFile("pkb-e2e-kubectl-", ".log");
         Process process = null;
         try {
@@ -192,7 +203,7 @@ public final class RunClusterE2e {
             try (var stdin = process.getOutputStream()) {
                 stdin.write(input.getBytes(StandardCharsets.UTF_8));
             }
-            if (!process.waitFor(45, TimeUnit.SECONDS)) {
+            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 throw new IllegalStateException("Kubernetes operation timed out");
             }
             return new Result(process.exitValue(), Files.readString(output));
@@ -234,7 +245,11 @@ public final class RunClusterE2e {
 
     @FunctionalInterface
     interface Commands {
-        Result run(List<String> command, String input) throws Exception;
+        Result run(List<String> command, String input, Duration timeout) throws Exception;
+
+        default Result run(List<String> command, String input) throws Exception {
+            return run(command, input, Duration.ofSeconds(45));
+        }
     }
 
     record Result(int exitCode, String output) {}
