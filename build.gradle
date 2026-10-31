@@ -14,6 +14,7 @@ java {
 }
 
 sourceSets {
+    ci { java.srcDir 'src/ci/java' }
     e2eTest {
         java.srcDir 'src/e2eTest/java'
         resources.srcDir 'src/e2eTest/resources'
@@ -55,6 +56,9 @@ dependencies {
     annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
     implementation 'org.flywaydb:flyway-database-postgresql'
 
+    testImplementation sourceSets.ci.output
+    e2eTestImplementation 'org.junit.platform:junit-platform-launcher'
+    e2eTestImplementation 'org.junit.platform:junit-platform-reporting'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
@@ -114,16 +118,60 @@ tasks.register('e2eTest', Test) {
     testClassesDirs = sourceSets.e2eTest.output.classesDirs
     classpath = sourceSets.e2eTest.runtimeClasspath
     shouldRunAfter tasks.named('test')
+    filter { includeTestsMatching 'com.biocompass.pkb.e2e.PkbServiceE2eTest' }
+    systemProperty 'pkb.e2e.target', 'local'
 }
 
-tasks.register('testCiScripts', Exec) {
-    description = 'Runs tests for GitHub Actions deployment scripts.'
+tasks.register('deployedE2eTest', Test) {
+    description = 'Runs the shared Java API E2E checks against testing with real BAS login.'
     group = 'verification'
-    commandLine 'bash', '.github/scripts/test-ci-scripts.sh'
+    testClassesDirs = sourceSets.e2eTest.output.classesDirs
+    classpath = sourceSets.e2eTest.runtimeClasspath
+    filter { includeTestsMatching 'com.biocompass.pkb.e2e.PkbServiceE2eTest' }
+    useJUnitPlatform { excludeTags 'local-fixture' }
+    systemProperty 'pkb.e2e.target', 'testing'
+    // BAS's internal Host is supplied over the authenticated Kubernetes port forward.
+    systemProperty 'jdk.httpclient.allowRestrictedHeaders', 'host'
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('e2eConfigurationTest', Test) {
+    description = 'Checks deployed E2E prerequisites and BAS login failure paths without a cluster.'
+    group = 'verification'
+    testClassesDirs = sourceSets.e2eTest.output.classesDirs
+    classpath = sourceSets.e2eTest.runtimeClasspath
+    filter {
+        includeTestsMatching 'com.biocompass.pkb.e2e.DeployedE2eSessionTest'
+        includeTestsMatching 'com.biocompass.pkb.e2e.ClusterE2eRunnerTest'
+    }
+    systemProperty 'jdk.httpclient.allowRestrictedHeaders', 'host'
+}
+
+tasks.register('prepareE2eRunner', Sync) {
+    description = 'Assembles the existing JUnit API E2E suite for the Kubernetes runner image.'
+    group = 'verification'
+    dependsOn tasks.named('e2eTestClasses')
+    into layout.buildDirectory.dir('e2e-runner')
+    from(sourceSets.e2eTest.output) { into 'classes' }
+    from(configurations.e2eTestRuntimeClasspath.filter { it.name.endsWith('.jar') }) { into 'lib' }
+}
+
+registerFocusedTest('testCiScripts', 'Runs Java CI workflow and deployment-classifier regression tests.', [
+        'com.biocompass.pkb.infrastructure.DeploymentWorkflowTest',
+        'com.biocompass.pkb.infrastructure.DeployChangeClassifierTest',
+        'com.biocompass.pkb.ci.RunClusterE2eTest'
+])
+
+// These tests read CI sources outside the usual Java classpath.
+// A workflow-only edit must invalidate both the full and focused test results.
+tasks.withType(Test).matching { it.name in ['test', 'testCiScripts'] }.configureEach {
+    inputs.files(fileTree('.github') {
+        include 'workflows/*.yml', 'scripts/*.java'
+    }, fileTree('deploy/kubernetes/e2e')).withPropertyName('ciVerificationSources').withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.named('test') {
-    dependsOn tasks.named('testCiScripts')
+    dependsOn tasks.named('e2eConfigurationTest')
 }
 
 tasks.register('fullVerification') {

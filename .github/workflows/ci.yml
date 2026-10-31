@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      verify-testing:
+        description: Run an E2E Job against existing testing without deploying the application
+        type: boolean
+        default: false
   push:
   pull_request:
     branches:
@@ -11,20 +17,14 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ghcr.io/bio-compass/pkb-service
   SERVICE_NAME: pkb-service
-  HELM_CHART: ${{ vars.PKB_SERVICE_HELM_CHART || 'oci://ghcr.io/bio-compass/charts/pkb-service' }}
-  HELM_CHART_VERSION: ${{ vars.PKB_SERVICE_HELM_CHART_VERSION || '' }}
   HELM_VALUES_REPOSITORY: ${{ vars.PKB_SERVICE_HELM_VALUES_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
   HELM_VALUES_REF: ${{ vars.PKB_SERVICE_HELM_VALUES_REF || 'main' }}
-  HELM_VALUES_FILE: ${{ vars.PKB_SERVICE_HELM_VALUES_FILE || 'values/dev/pkb-service.yaml' }}
-  HELM_VERSION: ${{ vars.HELM_VERSION || 'v3.19.2' }}
-  HELM_DIFF_VERSION: ${{ vars.HELM_DIFF_VERSION || 'v3.13.2' }}
-  HELM_REGISTRY_USERNAME: ${{ vars.HELM_REGISTRY_USERNAME || github.actor }}
 
 jobs:
   test:
@@ -124,12 +124,14 @@ jobs:
     needs:
       - test
       - e2e-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && !inputs.verify-testing)
     permissions:
       contents: read
       packages: write
     outputs:
       image-tag: ${{ steps.image.outputs.tag }}
+      image-ref: ${{ steps.digest.outputs.ref }}
+      helm-revision: ${{ steps.helm-revision.outputs.sha }}
 
     steps:
       - name: Check out repository
@@ -162,477 +164,115 @@ jobs:
           ./gradlew jibDockerBuild --no-daemon -PcontainerImage="${IMAGE_NAME}"
           docker push "${IMAGE_NAME}:${{ steps.image.outputs.tag }}"
 
-  plan-deploy:
-    name: Plan Kubernetes Deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: publish-image
+      - name: Resolve immutable image digest
+        id: digest
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          image_digest="$(docker image inspect "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{index .RepoDigests 0}}')"
+          [[ "${image_digest}" =~ ^${IMAGE_NAME}@sha256:[a-f0-9]{64}$ ]]
+          echo "ref=${IMAGE_TAG}@${image_digest#*@}" >> "${GITHUB_OUTPUT}"
+
+      - name: Pin Helm source and environment values
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.HELM_VALUES_REPOSITORY }}
+          ref: ${{ env.HELM_VALUES_REF }}
+          path: helm-source
+          ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
+          persist-credentials: false
+
+      - name: Record Helm revision
+        id: helm-revision
+        run: echo "sha=$(git -C helm-source rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+  deploy-testing:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment: dev
-    permissions:
-      contents: read
-      packages: read
-    outputs:
-      requires-approval: ${{ steps.classify.outputs.requires-approval }}
-      image-only: ${{ steps.classify.outputs.image-only }}
-      manual-approval-url: ${{ steps.manual-approval-url.outputs.url }}
-    env:
-      IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
-      K8S_NAMESPACE: bio-compass
-      KUBECONFIG: /home/runner/.kube/biocompass.yaml
+    name: Deploy to testing
+    needs: publish-image
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: testing
+      image-ref: ${{ needs.publish-image.outputs.image-ref }}
+      helm-revision: ${{ needs.publish-image.outputs.helm-revision }}
+    secrets: inherit
 
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: List repository changes
-        run: |
-          before_sha="${{ github.event.before }}"
-          after_sha="${{ github.sha }}"
-          zero_sha="0000000000000000000000000000000000000000"
-
-          if [ -z "${before_sha}" ] || [ "${before_sha}" = "${zero_sha}" ] || ! git cat-file -e "${before_sha}^{commit}" 2>/dev/null; then
-            git diff-tree --no-commit-id --name-only -r "${after_sha}" > changed-files.txt
-          else
-            git diff --name-only "${before_sha}" "${after_sha}" > changed-files.txt
-          fi
-
-          {
-            echo "### Repository changes for deploy review"
-            echo
-            echo '```'
-            head -c 20000 changed-files.txt
-            echo
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Validate deployment secrets
-        env:
-          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
-          HELM_VALUES_SSH_KEY: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
-          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
-          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
-          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
-        run: |
-          if [ -z "${HELM_REGISTRY_TOKEN}" ]; then
-            echo "BIO_COMPASS_HELM_TOKEN or GITHUB_TOKEN is required to read the Helm chart from ${REGISTRY}." >&2
-            exit 1
-          fi
-
-          if [ -z "${HELM_VALUES_SSH_KEY}" ]; then
-            echo "BIO_COMPASS_HELM_VALUES_SSH_KEY is required to read ${HELM_VALUES_REPOSITORY} for ${HELM_VALUES_FILE}." >&2
-            exit 1
-          fi
-
-          if [ -z "${KUBE_CONFIG}" ] && [ -z "${KUBE_CONFIG_B64}" ]; then
-            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
-            exit 1
-          fi
-
-          if [ -z "${PKB_DATASOURCE_PASSWORD}" ]; then
-            echo "PKB_DATASOURCE_PASSWORD secret is required to pin the deployed datasource password." >&2
-            exit 1
-          fi
-
-          if [ -z "${PKB_S3_ACCESS_KEY}" ] || [ -z "${PKB_S3_SECRET_KEY}" ]; then
-            echo "PKB_S3_ACCESS_KEY and PKB_S3_SECRET_KEY secrets are required for PKB MinIO." >&2
-            exit 1
-          fi
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - name: Check out Helm values
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.HELM_VALUES_REPOSITORY }}
-          ref: ${{ env.HELM_VALUES_REF }}
-          path: helm-values
-          ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
-          persist-credentials: false
-
-      - name: Resolve Helm values file
-        run: |
-          values_path="helm-values/${HELM_VALUES_FILE}"
-          if [ ! -f "${values_path}" ]; then
-            echo "Helm values file ${HELM_VALUES_FILE} was not found in ${HELM_VALUES_REPOSITORY}@${HELM_VALUES_REF}." >&2
-            exit 1
-          fi
-
-          echo "HELM_VALUES_PATH=${values_path}" >> "${GITHUB_ENV}"
-
-      - name: Configure Kubernetes credentials
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
-        run: |
-          mkdir -p "${HOME}/.kube"
-
-          if [ -n "${KUBE_CONFIG}" ]; then
-            printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
-          elif [ -n "${KUBE_CONFIG_B64}" ]; then
-            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
-          else
-            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
-            exit 1
-          fi
-
-          cp "${KUBECONFIG}" "${HOME}/.kube/config"
-          chmod 600 "${KUBECONFIG}" "${HOME}/.kube/config"
-
-      - name: Log in to Helm registry
-        env:
-          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
-        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
-
-      - name: Install Helm diff
-        run: helm plugin install https://github.com/databus23/helm-diff --version "${HELM_DIFF_VERSION}"
-
-      - name: Verify Helm chart access
-        run: |
-          chart_version_args=()
-          if [ -n "${HELM_CHART_VERSION}" ]; then
-            chart_version_args=(--version "${HELM_CHART_VERSION}")
-          fi
-
-          if ! helm show chart "${HELM_CHART}" "${chart_version_args[@]}"; then
-            echo "Unable to read Helm chart ${HELM_CHART} from ${REGISTRY}." >&2
-            echo "Grant the pkb-service workflow access to the chart package or set BIO_COMPASS_HELM_TOKEN to a classic PAT with read:packages." >&2
-            echo "If BIO_COMPASS_HELM_TOKEN belongs to a different GitHub user than the workflow actor, set HELM_REGISTRY_USERNAME to that username." >&2
-            exit 1
-          fi
-
-      - name: Show Helm diff
-        id: diff
-        env:
-          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
-          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
-          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
-        run: |
-          chart_version_args=()
-          if [ -n "${HELM_CHART_VERSION}" ]; then
-            chart_version_args=(--version "${HELM_CHART_VERSION}")
-          fi
-
-          password_file="$(mktemp)"
-          s3_access_key_file="$(mktemp)"
-          s3_secret_key_file="$(mktemp)"
-          trap 'rm -f "${password_file}" "${s3_access_key_file}" "${s3_secret_key_file}"' EXIT
-          printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
-          printf '%s' "${PKB_S3_ACCESS_KEY}" > "${s3_access_key_file}"
-          printf '%s' "${PKB_S3_SECRET_KEY}" > "${s3_secret_key_file}"
-
-          set +e
-          helm diff upgrade "${SERVICE_NAME}" "${HELM_CHART}" \
-            "${chart_version_args[@]}" \
-            --install \
-            --allow-unreleased \
-            --detailed-exitcode \
-            --no-color \
-            --suppress-secrets \
-            --namespace "${K8S_NAMESPACE}" \
-            --values "${HELM_VALUES_PATH}" \
-            --set image.repository="${IMAGE_NAME}" \
-            --set-string image.tag="${IMAGE_TAG}" \
-            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}" \
-            --set-file secrets.stringData.PKB_S3_ACCESS_KEY="${s3_access_key_file}" \
-            --set-file secrets.stringData.PKB_S3_SECRET_KEY="${s3_secret_key_file}" \
-            > helm-diff.txt
-          diff_status=$?
-          set -e
-
-          cat helm-diff.txt
-
-          {
-            echo "### Helm diff for ${SERVICE_NAME}"
-            echo
-            echo '```diff'
-            head -c 60000 helm-diff.txt
-            echo
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-          if [ "${diff_status}" -ne 0 ] && [ "${diff_status}" -ne 2 ]; then
-            exit "${diff_status}"
-          fi
-
-          echo "status=${diff_status}" >> "${GITHUB_OUTPUT}"
-
-      - name: Classify deploy change
-        id: classify
-        run: |
-          bash .github/scripts/classify-deploy-change.sh \
-            --helm-diff helm-diff.txt \
-            --diff-status "${{ steps.diff.outputs.status }}" \
-            --output-dir .
-
-      - name: Upload manual approval review
-        if: steps.classify.outputs.requires-approval == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: manual-approval-review
-          path: |
-            manual-approval-review.md
-            helm-diff.txt
-            non-image-diff.txt
-            changed-files.txt
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Resolve manual approval review URL
-        id: manual-approval-url
-        if: steps.classify.outputs.requires-approval == 'true'
-        run: |
-          review_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          echo "url=${review_url}" >> "${GITHUB_OUTPUT}"
-
-          {
-            echo
-            echo "### Manual approval gate"
-            echo
-            echo "The dev-manual-approval environment links to this run summary so reviewers can read the Helm diff before approving."
-            echo
-            echo "${review_url}"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-  deploy-image-only:
-    name: Deploy Image-Only Change
+  e2e-testing:
+    name: E2E against deployed testing service
+    if: >-
+      always() && !cancelled() &&
+      (needs.deploy-testing.result == 'success' ||
+      (github.event_name == 'workflow_dispatch' && inputs.verify-testing))
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs:
-      - publish-image
-      - plan-deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.image-only == 'true' && needs.plan-deploy.outputs.requires-approval == 'false'
-    environment: dev
+    needs: deploy-testing
+    environment: testing
     permissions:
       contents: read
-      packages: read
+      packages: write
     env:
-      IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
-      K8S_NAMESPACE: bio-compass
-      KUBECONFIG: /home/runner/.kube/biocompass.yaml
-
+      KUBECONFIG: /home/runner/.kube/pkb-ci-config
     steps:
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
-          version: ${{ env.HELM_VERSION }}
-
-      - name: Check out Helm values
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.HELM_VALUES_REPOSITORY }}
-          ref: ${{ env.HELM_VALUES_REF }}
-          path: helm-values
-          ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
-          persist-credentials: false
-
-      - name: Resolve Helm values file
-        run: |
-          values_path="helm-values/${HELM_VALUES_FILE}"
-          if [ ! -f "${values_path}" ]; then
-            echo "Helm values file ${HELM_VALUES_FILE} was not found in ${HELM_VALUES_REPOSITORY}@${HELM_VALUES_REF}." >&2
-            exit 1
-          fi
-
-          echo "HELM_VALUES_PATH=${values_path}" >> "${GITHUB_ENV}"
-
-      - name: Configure Kubernetes credentials
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: azure/setup-kubectl@v4
+      - name: Configure testing credentials
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
         run: |
-          mkdir -p "${HOME}/.kube"
-
-          if [ -n "${KUBE_CONFIG}" ]; then
-            printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
-          elif [ -n "${KUBE_CONFIG_B64}" ]; then
-            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
-          else
-            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
-            exit 1
-          fi
-
-          cp "${KUBECONFIG}" "${HOME}/.kube/config"
-          chmod 600 "${KUBECONFIG}" "${HOME}/.kube/config"
-
-      - name: Log in to Helm registry
+          umask 077
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          test -n "${KUBE_CONFIG}"
+          printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
+      - name: Assemble Java E2E runner
+        run: ./gradlew prepareE2eRunner --no-daemon
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish source-matched test runner
+        id: runner-image
+        uses: docker/build-push-action@v6
+        with:
+          context: build/e2e-runner
+          file: deploy/kubernetes/e2e/Dockerfile
+          push: true
+          tags: ghcr.io/bio-compass/pkb-service-e2e:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          build-args: SOURCE_REVISION=${{ github.sha }}
+      - name: Run Java E2E Job on the internal testing network
         env:
-          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
-        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
+          PKB_E2E_USERNAME: ${{ secrets.PKB_E2E_USERNAME }}
+          PKB_E2E_PASSWORD: ${{ secrets.PKB_E2E_PASSWORD }}
+          PKB_E2E_NAMESPACE: testing
+          PKB_E2E_RUNNER_IMAGE: ghcr.io/bio-compass/pkb-service-e2e@${{ steps.runner-image.outputs.digest }}
+        run: java src/ci/java/com/biocompass/pkb/ci/RunClusterE2e.java
+      - name: Clean up temporary testing Job
+        if: always()
+        run: kubectl -n testing delete job "pkb-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --ignore-not-found --cascade=foreground --wait=true --timeout=30s
+      - name: Upload deployed Java E2E reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pkb-deployed-e2e-report
+          path: build/reports/cluster-e2e
+          if-no-files-found: ignore
+      - name: Remove Kubernetes credentials
+        if: always()
+        run: rm -f "${KUBECONFIG}"
 
-      - name: Deploy service
-        env:
-          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
-          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
-          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
-        run: |
-          chart_version_args=()
-          if [ -n "${HELM_CHART_VERSION}" ]; then
-            chart_version_args=(--version "${HELM_CHART_VERSION}")
-          fi
-
-          password_file="$(mktemp)"
-          s3_access_key_file="$(mktemp)"
-          s3_secret_key_file="$(mktemp)"
-          trap 'rm -f "${password_file}" "${s3_access_key_file}" "${s3_secret_key_file}"' EXIT
-          printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
-          printf '%s' "${PKB_S3_ACCESS_KEY}" > "${s3_access_key_file}"
-          printf '%s' "${PKB_S3_SECRET_KEY}" > "${s3_secret_key_file}"
-
-          helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
-            "${chart_version_args[@]}" \
-            --namespace "${K8S_NAMESPACE}" \
-            --values "${HELM_VALUES_PATH}" \
-            --set image.repository="${IMAGE_NAME}" \
-            --set-string image.tag="${IMAGE_TAG}" \
-            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}" \
-            --set-file secrets.stringData.PKB_S3_ACCESS_KEY="${s3_access_key_file}" \
-            --set-file secrets.stringData.PKB_S3_SECRET_KEY="${s3_secret_key_file}"
-
-      - name: Wait for rollout
-        run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s
-
-  approve-non-image-deploy:
-    name: Approve Non-Image Deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: plan-deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'true'
-    environment:
-      name: dev-manual-approval
-      url: ${{ needs.plan-deploy.outputs.manual-approval-url }}
-    permissions:
-      actions: read
-      contents: read
-
-    steps:
-      - name: Verify manual approval protection
-        env:
-          GH_TOKEN: ${{ github.token }}
-          APPROVAL_ENVIRONMENT: dev-manual-approval
-        run: |
-          environment_json="$(gh api "repos/${GITHUB_REPOSITORY}/environments/${APPROVAL_ENVIRONMENT}")"
-          required_reviewers="$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length' <<< "${environment_json}")"
-
-          if [ "${required_reviewers}" -lt 1 ]; then
-            echo "The ${APPROVAL_ENVIRONMENT} environment must have at least one required reviewer before non-image deploys can proceed." >&2
-            exit 1
-          fi
-
-      - name: Await manual approval
-        run: echo "Manual approval completed after reviewing ${{ needs.plan-deploy.outputs.manual-approval-url }}."
-
-  deploy-approved-change:
-    name: Deploy Approved Change
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  deploy-prod:
+    name: Promote tested image to production
     needs:
       - publish-image
-      - plan-deploy
-      - approve-non-image-deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.plan-deploy.outputs.requires-approval == 'true'
-    environment: dev
-    permissions:
-      contents: read
-      packages: read
-    env:
-      IMAGE_TAG: ${{ needs.publish-image.outputs.image-tag }}
-      K8S_NAMESPACE: bio-compass
-      KUBECONFIG: /home/runner/.kube/biocompass.yaml
-
-    steps:
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - name: Check out Helm values
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.HELM_VALUES_REPOSITORY }}
-          ref: ${{ env.HELM_VALUES_REF }}
-          path: helm-values
-          ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
-          persist-credentials: false
-
-      - name: Resolve Helm values file
-        run: |
-          values_path="helm-values/${HELM_VALUES_FILE}"
-          if [ ! -f "${values_path}" ]; then
-            echo "Helm values file ${HELM_VALUES_FILE} was not found in ${HELM_VALUES_REPOSITORY}@${HELM_VALUES_REF}." >&2
-            exit 1
-          fi
-
-          echo "HELM_VALUES_PATH=${values_path}" >> "${GITHUB_ENV}"
-
-      - name: Configure Kubernetes credentials
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
-        run: |
-          mkdir -p "${HOME}/.kube"
-
-          if [ -n "${KUBE_CONFIG}" ]; then
-            printf '%s' "${KUBE_CONFIG}" > "${KUBECONFIG}"
-          elif [ -n "${KUBE_CONFIG_B64}" ]; then
-            printf '%s' "${KUBE_CONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
-          else
-            echo "KUBE_CONFIG or KUBE_CONFIG_B64 secret is required for deployment." >&2
-            exit 1
-          fi
-
-          cp "${KUBECONFIG}" "${HOME}/.kube/config"
-          chmod 600 "${KUBECONFIG}" "${HOME}/.kube/config"
-
-      - name: Log in to Helm registry
-        env:
-          HELM_REGISTRY_TOKEN: ${{ secrets.BIO_COMPASS_HELM_TOKEN || secrets.GITHUB_TOKEN }}
-        run: printf '%s' "${HELM_REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${HELM_REGISTRY_USERNAME}" --password-stdin
-
-      - name: Deploy service
-        env:
-          PKB_DATASOURCE_PASSWORD: ${{ secrets.PKB_DATASOURCE_PASSWORD }}
-          PKB_S3_ACCESS_KEY: ${{ secrets.PKB_S3_ACCESS_KEY }}
-          PKB_S3_SECRET_KEY: ${{ secrets.PKB_S3_SECRET_KEY }}
-        run: |
-          chart_version_args=()
-          if [ -n "${HELM_CHART_VERSION}" ]; then
-            chart_version_args=(--version "${HELM_CHART_VERSION}")
-          fi
-
-          password_file="$(mktemp)"
-          s3_access_key_file="$(mktemp)"
-          s3_secret_key_file="$(mktemp)"
-          trap 'rm -f "${password_file}" "${s3_access_key_file}" "${s3_secret_key_file}"' EXIT
-          printf '%s' "${PKB_DATASOURCE_PASSWORD}" > "${password_file}"
-          printf '%s' "${PKB_S3_ACCESS_KEY}" > "${s3_access_key_file}"
-          printf '%s' "${PKB_S3_SECRET_KEY}" > "${s3_secret_key_file}"
-
-          helm upgrade --install "${SERVICE_NAME}" "${HELM_CHART}" \
-            "${chart_version_args[@]}" \
-            --namespace "${K8S_NAMESPACE}" \
-            --values "${HELM_VALUES_PATH}" \
-            --set image.repository="${IMAGE_NAME}" \
-            --set-string image.tag="${IMAGE_TAG}" \
-            --set-file secrets.stringData.PKB_DATASOURCE_PASSWORD="${password_file}" \
-            --set-file secrets.stringData.PKB_S3_ACCESS_KEY="${s3_access_key_file}" \
-            --set-file secrets.stringData.PKB_S3_SECRET_KEY="${s3_secret_key_file}"
-
-      - name: Wait for rollout
-        run: kubectl rollout status "deployment/${SERVICE_NAME}" --namespace "${K8S_NAMESPACE}" --timeout=180s
+      - e2e-testing
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: prod
+      image-ref: ${{ needs.publish-image.outputs.image-ref }}
+      helm-revision: ${{ needs.publish-image.outputs.helm-revision }}
+    secrets: inherit
