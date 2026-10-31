@@ -25,12 +25,22 @@ final class DeployedE2eSession {
         if (!"testing".equals(environment.get("PKB_E2E_NAMESPACE"))) {
             throw new IllegalArgumentException("Deployed E2E must target namespace testing");
         }
+        var access = environment.getOrDefault("PKB_E2E_ACCESS_MODE", "port-forward");
+        if (!access.equals("port-forward") && !access.equals("cluster")) {
+            throw new IllegalArgumentException("Unknown deployed E2E access mode");
+        }
         for (var key : new String[]{"PKB_E2E_BASE_URL", "PKB_E2E_AUTH_URL"}) {
             var url = URI.create(required(environment, key));
-            if (!"http".equals(url.getScheme()) || !"127.0.0.1".equals(url.getHost())
-                    || url.getPort() < 1 || url.getUserInfo() != null || url.getQuery() != null
-                    || url.getFragment() != null || !(url.getPath().isEmpty() || url.getPath().equals("/"))) {
-                throw new IllegalArgumentException("Deployed E2E requires loopback port-forward URLs");
+            var expectedHost = key.equals("PKB_E2E_BASE_URL") ? "pkb-service" : "bio-compass-auth";
+            var validAddress = access.equals("cluster")
+                    ? expectedHost.equals(url.getHost()) && (url.getPort() == -1 || url.getPort() == 80)
+                    : "127.0.0.1".equals(url.getHost()) && url.getPort() > 0 && url.getPort() <= 65535;
+            if (!"http".equals(url.getScheme()) || !validAddress
+                    || url.getUserInfo() != null || url.getQuery() != null || url.getFragment() != null
+                    || !(url.getPath().isEmpty() || url.getPath().equals("/"))) {
+                throw new IllegalArgumentException(access.equals("cluster")
+                        ? "Cluster E2E requires the exact testing PKB and BAS service URLs"
+                        : "Deployed E2E requires loopback port-forward URLs");
             }
         }
         required(environment, "PKB_E2E_USERNAME");
@@ -65,7 +75,7 @@ final class DeployedE2eSession {
     }
 
     private static HttpRequest.Builder basRequest(String url) {
-        // Match BAS's internal ingress metadata over the authenticated Kubernetes TLS tunnel.
+        // Use BAS's internal host/scheme metadata on the validated testing network path.
         return HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(10))
                 .header("Accept", "application/json")
                 .header("Host", "bio-compass-auth").header("X-Forwarded-Proto", "https");

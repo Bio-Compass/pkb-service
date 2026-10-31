@@ -125,7 +125,7 @@ Add concrete local service testcases here as features land:
 | ID | Check | Expected result |
 | --- | --- | --- |
 | CI-001 | `./gradlew testCiScripts --no-daemon` | Java workflow dependency/immutable artifact and actual classifier CLI checks pass; `./gradlew e2eConfigurationTest --no-daemon` covers deployed Java target/login failure paths and is included in `test`. |
-| CI-002 | Run `./gradlew deployedE2eTest --no-daemon` through the testing namespace port forwards, with dedicated BAS credentials | Real login, scoped PKB reads, input validation, missing-item and auth-denial assertions pass; no SQL/stub/production fixtures are used. |
+| CI-002 | Dispatch CI with `verify-testing=true` to run the temporary Java E2E Job against internal testing service names; local replay also supports `./gradlew deployedE2eTest --no-daemon` through port forwards | Real login, scoped PKB reads, input validation, missing-item and auth-denial assertions pass; no SQL/stub/production fixtures are used. |
 | CI-003 | Failed/skipped/cancelled `e2e-testing` | `deploy-prod` never runs. Missing testing secrets and BAS introspection errors are failures, not skips. |
 | CI-004 | Successful test gate and production promotion review | Production uses exactly the testing image digest and pinned Helm revision, waits for manual approval, then verifies rollout/image/readiness. |
 | CI-005 | Namespace credentials | Testing/prod credentials can deploy and port-forward only in their own namespace; legacy `bio-compass` credentials fail preflight. |
@@ -137,10 +137,17 @@ See the [deployment guide](kubernetes-vm-deployment.md#github-actions-testing-be
 - `e2eTest`: existing `PkbServiceE2eTest` in local mode, including tagged SQL fixtures, BAS stub, Kafka write/deduplication and supersession checks.
 - `deployedE2eTest`: the same class in testing mode, real BAS login, shared health/OpenAPI/authentication/authorization/validation/search/missing-item checks. Tagged local fixtures are excluded and database access is rejected; no SQL account or staff account is needed.
 - `e2eConfigurationTest`: namespace/loopback/credential validation, real HTTP login and verified identity handling, redirect denial and private error diagnostics. Runs as part of `test`.
-- CI manual `verify-testing=true`: runs the Java suite on the existing testing release with GitHub environment secrets, uploads the Gradle report, and skips image publication, deployments and production promotion. A failed Java E2E gate remains a failed workflow.
+- CI manual `verify-testing=true`: runs the Java suite on the existing testing release with GitHub environment secrets, uploads the Gradle report, and publishes only a test-runner image and creates a temporary Job; it skips application image publication/rollout and production promotion. A failed Java E2E gate remains a failed workflow.
 
 The Python deployed suite was removed. Both targets reuse Java API assertions; deployed read checks do not claim the local-only write-path coverage.
 
 ### Java CI verification (#66)
 
 `./gradlew testCiScripts --no-daemon` runs `DeploymentWorkflowTest` and `DeployChangeClassifierTest` through JUnit. These classes also run in the ordinary `test` suite; no Ruby or shell test runner is required. The classifier tests execute the actual standalone `.github/scripts/ClassifyDeployChange.java` source launcher with image-only, non-image, credential, suppressed-secret and no-change Helm diffs, then verify GitHub outputs and review artifacts. CI selects Java 25 before invoking it. Workflow/helper source files are declared Gradle test inputs so edits invalidate previous test results.
+
+### In-cluster Java E2E Job (#66)
+
+- `./gradlew testCiScripts e2eConfigurationTest prepareE2eRunner --no-daemon`: validates Job manifest/rendering, immutable test-runner identity, namespace and URL restrictions, lifecycle failures/timeouts, report safety and cleanup; packages the same JUnit suite for the container.
+- `RunClusterE2eTest`: Job failure/timeout, missing/failed/skipped results and credential API errors fail closed; foreground cleanup is attempted after all created-Job paths. The manifest has no API-token mount, public access or plaintext credentials.
+- CI `verify-testing=true`: builds the test-runner from the selected source revision, runs all shared API checks over native service DNS, retrieves JUnit XML/log artifacts, and deletes the Job and its owned Secret. Application image publication/rollout and production promotion remain skipped.
+- After verification, list `jobs,pods,secrets` in `testing` and confirm no resources for the CI run remain. Do not display Secret values.

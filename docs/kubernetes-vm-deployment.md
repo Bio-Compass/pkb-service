@@ -81,7 +81,7 @@ The job sequence is:
 1. `test` and local `e2e-test` validate the source.
 2. `publish-image` publishes and records the immutable image and Helm revision.
 3. `deploy-testing` plans and records the `testing` namespace diff, then automatically invokes the existing Helm-owned `scripts/deploy.sh testing pkb-service <tag@digest>` with `DEPLOY_SOURCE=local` at the pinned commit. It waits for rollout, verifies the image and checks readiness.
-4. `e2e-testing` runs `./gradlew deployedE2eTest --no-daemon` using the existing Java E2E class against the deployed testing PKB and BAS through namespace-scoped Kubernetes port forwards. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
+4. `e2e-testing` packages the existing Java E2E class into a source-matched test-runner image, pins its digest, and executes a temporary Job in `testing` against PKB and BAS through internal Kubernetes service names. It requires a real, verified, non-staff synthetic BAS user. Missing credentials, failed readiness, failed login, and API failures fail the job.
 5. `deploy-prod` is eligible only after testing E2E succeeds. It plans the production diff, always requires the `prod-manual-approval` environment, and deploys the same immutable image through Helm-owned machinery using `values/prod/pkb-service.yaml`.
 
 Failed, cancelled or skipped testing jobs cannot promote production. Main-branch runs are serialized without cancelling a deployment already in progress. Helm source and values are read from `Bio-Compass/bio-compass-helm` (overridable with `PKB_SERVICE_HELM_VALUES_REPOSITORY` and `PKB_SERVICE_HELM_VALUES_REF`). This service does not change Helm-owned scripts or charts.
@@ -112,7 +112,7 @@ Applying RBAC, creating namespace-scoped tokens and storing each kubeconfig in t
 
 ### Deployed E2E coverage and local replay
 
-Both Gradle targets run the existing `PkbServiceE2eTest` class. `e2eTest` selects local mode with the BAS stub and SQL/Kafka fixtures. `deployedE2eTest` selects testing mode with real BAS login and excludes `local-fixture` tagged cases; direct database access is also rejected in this mode. The shared deployed checks cover readiness/liveness, OpenAPI availability, real BAS login, authenticated user-scoped PKB search, rejection of unauthenticated/invalid tokens, cross-user denial, query validation and missing-item behavior. It is read-only against PKB; it does not seed SQL, install an introspection stub, or mutate production data. The existing Gradle `e2eTest` remains the broader isolated local suite, including Kafka write/deduplication tests. Deployed write-path coverage requires the environment's command-ingress/AU configuration and a separate fixture lifecycle; passing read E2E does not claim write-path verification.
+Both Gradle targets run the existing `PkbServiceE2eTest` class. `e2eTest` selects local mode with the BAS stub and SQL/Kafka fixtures. `deployedE2eTest` selects testing mode with real BAS login and excludes `local-fixture` tagged cases; direct database access is also rejected in this mode. CI uses the same tests through `ClusterE2eRunner` in a Kubernetes Job. The shared deployed checks cover readiness/liveness, OpenAPI availability, real BAS login, authenticated user-scoped PKB search, rejection of unauthenticated/invalid tokens, cross-user denial, query validation and missing-item behavior. It is read-only against PKB; it does not seed SQL, install an introspection stub, or mutate production data. The existing Gradle `e2eTest` remains the broader isolated local suite, including Kafka write/deduplication tests. Deployed write-path coverage requires the environment's command-ingress/AU configuration and a separate fixture lifecycle; passing read E2E does not claim write-path verification.
 
 For local replay, start port forwards in separate terminals:
 
@@ -128,7 +128,7 @@ PKB_E2E_NAMESPACE=testing PKB_E2E_BASE_URL=http://127.0.0.1:18080 \
   PKB_E2E_AUTH_URL=http://127.0.0.1:18081 ./gradlew deployedE2eTest --no-daemon
 ```
 
-The testing target accepts only loopback URLs and `testing` as the namespace. It supplies BAS's internal Host and ingress scheme metadata over the authenticated Kubernetes TLS tunnel; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
+The local port-forward target accepts only loopback URLs and `testing` as the namespace. Cluster mode (`PKB_E2E_ACCESS_MODE=cluster`) accepts only `http://pkb-service` and `http://bio-compass-auth` on port 80 in the testing namespace. Both use BAS's internal Host and scheme metadata on the validated private path; it does not disable TLS verification or change BAS settings. A real PKB-to-BAS introspection failure remains a promotion-blocking test failure.
 
 For verification using existing GitHub testing secrets, dispatch CI on the reviewed branch with `verify-testing=true`:
 
@@ -136,7 +136,17 @@ For verification using existing GitHub testing secrets, dispatch CI on the revie
 gh workflow run ci.yml --ref codex/pkb-66-test-prod-promotion -f verify-testing=true
 ```
 
-This mode runs Java E2E against the existing testing release and uploads Gradle XML/HTML reports. It publishes no image and performs no deployment or production promotion. Normal pushes to `main` still deploy testing first and promote only after the Java E2E gate succeeds. `./gradlew e2eConfigurationTest --no-daemon` validates target/credential rules and real HTTP login failure paths without cluster access; it is included in `test`.
+This mode builds/publishes only the source-matched **test-runner** image and runs its temporary E2E Job against the existing testing application. It uploads JUnit XML, Job logs, the non-secret Job manifest, and the tested application image identity. It publishes/deploys no application image and cannot promote production. Normal pushes to `main` still deploy testing first and promote only after the Java E2E gate succeeds. `./gradlew e2eConfigurationTest --no-daemon` validates target/credential rules and real HTTP login failure paths without cluster access; it is included in `test`.
+
+### In-cluster test Job
+
+`deploy/kubernetes/e2e/job.yaml` runs `ClusterE2eRunner` from an immutable `ghcr.io/bio-compass/pkb-service-e2e@sha256:...` image. `./gradlew prepareE2eRunner` assembles the existing E2E classes and dependencies; the container uses Java 25 and JUnit's launcher/XML reporter without downloading Gradle or dependencies inside the cluster. Local `e2eTest` and port-forward replay remain available.
+
+The Job uses namespace-local DNS (`pkb-service`, `bio-compass-auth`). PKB remains ClusterIP-only with no public ingress. The test pod runs as a non-root user with a read-only root filesystem, resource limits, no Kubernetes API token and no API role. Credentials are only the existing dedicated BAS testing account, supplied through a per-run Secret owned by the Job. CI creates this Secret through stdin; passwords are never command-line arguments or stored in review artifacts. The existing `ghcr-pull` registry secret is referenced for image pulls.
+
+The Job has no test retries (`backoffLimit=0`), a five-minute active deadline and a thirty-minute TTL fallback. Java orchestration collects JUnit XML through bounded log records, requires nonempty successful results, and deletes the Job with foreground cascading cleanup of its pods and credential Secret. An always-run CI cleanup step covers interrupted runs. A failed Job, deadline, skipped/failed/errored tests, missing reports, or failed cleanup fails the gate. `pods/exec` permission is not needed. Existing namespace-scoped deployer Job/Secret/log permissions are sufficient; application rollout/readiness still uses Helm-owned machinery.
+
+The central architecture companion remains **proposed** and is refreshed against the current central release; no central or shared Helm repository was modified.
 
 ### Activation evidence (2026-10-25)
 
