@@ -120,6 +120,30 @@ Add concrete local service testcases here as features land:
 - Artifact object upload/download HTTP flows after metadata registration.
 - FHIR mapping and resource retrieval behavior.
 
+## PKB #62 — client-neutral source-record integration
+
+- Verify the real BAS Django WSGI endpoint receives length-delimited JSON with `Content-Length`,
+  rather than chunked framing, from the PKB authority client. `PkbRecordApiTest` checks framing;
+  exercise actual BAS login and BWTS → PKB → BAS verification in a disposable local stack.
+- Verify separate producer/user credentials, invalid/expired authority, unknown producer,
+  subject substitution, AU denial/unavailability, incorrect action/user binding and unsupported
+  obligations. Responses/logs must not disclose upstream details or credentials.
+- Verify mobile, ordinary API, browser-resource and delegated BWTS requests exercise the same
+  PKB record operations; aggregate authority never permits raw-history disclosure.
+- Round-trip exact mL quantities, original UUIDs/observed/recorded instants and source provenance.
+- On real PostgreSQL, verify equivalent/concurrent replay, conflicting reuse, source UUID
+  collisions, retained deleted keys, repeated/foreign deletion, explicit bounded purge,
+  reference refusal, and atomic item/provenance/key/outbox rollback.
+- Verify half-open UTC windows, 23/25-hour BWTS local days, zero-filled 7/30-day statistics,
+  recent-amount tie order, owner/producer/deleted filtering, and complete cursor history.
+- Run BWTS's writes-paused import twice against disposable databases; compare all identities,
+  timestamps, keys, contents, active/deleted counts and daily totals. A mismatch must roll back.
+- Run `manual_tests/verify_bwts_pkb.py` with the BWTS external Python environment and a built PKB
+  bootJar against disposable PostgreSQL. The harness uses BAS/BUPS/AU contract doubles and must
+  label that limit; it is not evidence of production authority, public-edge routing or deployment.
+- Run `.agents/skills/pkb-change-verification/scripts/verify.sh full`, plus BAS/BWTS suites,
+  formatting and OpenAPI drift checks. Report external blockers and skipped environments distinctly.
+
 ## Testing-to-production promotion (#66)
 
 | ID | Check | Expected result |

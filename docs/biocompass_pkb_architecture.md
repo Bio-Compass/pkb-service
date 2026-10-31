@@ -635,3 +635,16 @@ This gives:
 - governance
 - scalability
 - flexibility
+
+# Client-neutral source records — issue #62
+
+The working-branch [record contract](pkb_record_api.md) adds generic synchronous source-record
+operations alongside the existing asynchronous ingress. BWTS is its first consumer; PKB has
+no endpoint or policy branch for Telegram, mobile, browser or BWTS. BAS verifies original
+user authority for an explicitly approved backend/resource relation. PKB authenticates the
+producer independently and enforces a bound AU decision before disclosure or mutation.
+Hydration calculations, client-facing APIs and BUPS day semantics stay with BWTS.
+
+The [central companion](https://github.com/Bio-Compass/bio-compass-architecture-docs/blob/codex/pkb-62-client-neutral-integration/docs/decisions/project-decision-log.md#decision-pkb62-client-neutral-records)
+remains proposed and pending publication. This branch's source does not prove deployment,
+accepted policy reconciliation or a completed production migration.

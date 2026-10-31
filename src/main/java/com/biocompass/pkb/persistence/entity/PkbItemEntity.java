@@ -56,6 +56,18 @@ public class PkbItemEntity {
     @Column(name = "source_id")
     private String sourceId;
 
+    @Column(name = "source_system")
+    private String sourceSystem;
+
+    @Column(name = "source_record_id")
+    private String sourceRecordId;
+
+    @Column(name = "recorded_at")
+    private Instant recordedAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     @Column(name = "observed_at")
     private Instant observedAt;
 
