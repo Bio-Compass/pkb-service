@@ -175,3 +175,11 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
 - `RunClusterE2eTest`: native Kubernetes watches replace status polling; success waits for `Complete` after `SuccessCriteriaMet` within one deadline, while failed or unexpected conditions and watch errors fail closed. Job timeout, missing/failed/skipped results and credential API errors also fail closed; foreground cleanup is attempted after all created-Job paths. The manifest has no API-token mount, public access or plaintext credentials.
 - CI `verify-testing=true`: builds the test-runner from the selected source revision, runs all shared API checks over native service DNS, retrieves JUnit XML/log artifacts, and deletes the Job and its owned Secret. Application image publication/rollout and production promotion remain skipped.
 - After verification, list `jobs,pods,secrets` in `testing` and confirm no resources for the CI run remain. Do not display Secret values.
+
+## BAS introspection HTTP framing (#68)
+
+| ID | Verification | Expected result |
+| --- | --- | --- |
+| AUTH-TRANSPORT-001 | `./gradlew test --tests com.biocompass.pkb.auth.BioCompassTokenIntrospectionClientTest --no-daemon` | Spring-managed client sends the exact token JSON with its UTF-8 Content-Length and no chunked transfer encoding to a real HTTP server. Active/inactive and credential rejection behavior remain covered. |
+
+BAS on the testing cluster requires fixed-length JSON requests. Spring buffers the small introspection payload before transmission; service credentials, response parsing, and configured connect/read timeouts are preserved.
