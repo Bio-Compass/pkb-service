@@ -503,6 +503,23 @@ topics. See [Kafka Command Ingress](kafka-command-ingress.md).
 
 ---
 
+## Updates and corrections
+
+PKB currently supports fact corrections through the legacy asynchronous command API's
+`POST /api/pkb/commands/items/{itemId}/supersessions`. A successful command creates a replacement
+with a new UUID, retains the original item, and atomically records the reciprocal `supersedes` /
+`superseded_by` links and provenance. `202 Accepted` confirms Kafka acknowledgement; the canonical
+replacement commits later. There is no general in-place `PUT` or `PATCH` operation.
+
+The [source-record API used by BWTS](pkb_record_api.md#updates-and-corrections) supports creation,
+reads, quantity aggregates and soft deletion, but exposes neither updates nor supersession.
+Changing an existing water intake (for example, 250 mL to 300 mL) is therefore not supported by
+this integration. Reusing an active record's idempotency key with changed content returns `409`; it is not an
+update. A future intake-edit workflow needs its own correction contract and authorization;
+this documentation does not add that capability.
+
+---
+
 ## Storage
 
 ```text

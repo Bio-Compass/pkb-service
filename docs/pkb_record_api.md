@@ -76,6 +76,20 @@ Item output contains the input identity, category, quantity and times plus verif
 `source_system`; privacy/consent are enforced without being accepted as authority. BWTS maps
 `recorded_at` to its original `created_at`; PKB ingestion time remains independent.
 
+## Updates and corrections
+
+This API has no `PUT`, `PATCH`, replacement or supersession operation. BWTS consequently cannot
+edit an existing intake through the PKB adapter. For an active record, a changed request with the
+original idempotency key returns `409 idempotency_conflict` rather than changing the stored record.
+After soft deletion, any request with its retained key returns `409 key_retired`; soft deletion
+also retains source identity. For example, changing 250 mL to 300 mL is not an implemented BWTS
+operation in this slice.
+
+The separate legacy command API supports history-preserving supersession, as described in
+[the service architecture](biocompass_pkb_architecture.md#updates-and-corrections). That capability
+is not exposed by this source-record contract or the BWTS adapter. A future intake-edit workflow
+requires a separately defined correction and authorization contract.
+
 ## Ordering, lifecycle and retries
 
 All reads are owner/producer scoped and exclude deleted/non-active facts. UTC windows are lower
