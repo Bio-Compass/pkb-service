@@ -167,7 +167,7 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
 
 ### Java CI verification (#66)
 
-`./gradlew testCiScripts --no-daemon` runs `DeploymentWorkflowTest` and `DeployChangeClassifierTest` through JUnit. These classes also run in the ordinary `test` suite; no Ruby or shell test runner is required. The classifier tests execute the actual standalone `.github/scripts/ClassifyDeployChange.java` source launcher with image-only, non-image, credential, suppressed-secret and no-change Helm diffs, then verify GitHub outputs and review artifacts. CI selects Java 25 before invoking it. Workflow/helper source files are declared Gradle test inputs so edits invalidate previous test results.
+`./gradlew testCiScripts --no-daemon` runs `DeploymentWorkflowTest` and `DeployChangeClassifierTest` through JUnit. These classes also run in the ordinary `test` suite; no Ruby or shell test runner is required. The classifier tests execute the actual standalone `.github/scripts/ClassifyDeployChange.java` source launcher with image-only, non-image, credential, suppressed-secret and no-change Helm diffs, then verify GitHub outputs and review artifacts. CI selects Java 25 before invoking it. Workflow/helper source files and composite action metadata are declared Gradle test inputs so edits invalidate previous test results. The Helm repository is resolved in the calling workflow and passed into the preparation action through its required `helm-repository` input; Java regression checks cover both planning and rollout callers and the action's pinned checkout.
 
 ### In-cluster Java E2E Job (#66)
 
