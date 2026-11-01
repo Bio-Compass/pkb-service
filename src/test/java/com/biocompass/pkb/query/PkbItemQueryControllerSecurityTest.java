@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "biocompass.pkb.auth.legacy.service-tokens.query-client=fixture-query-only",
         classes = PkbItemQueryControllerSecurityTest.TestApplication.class
 )
 class PkbItemQueryControllerSecurityTest {
@@ -70,6 +71,16 @@ class PkbItemQueryControllerSecurityTest {
 
         assertThat(response.statusCode()).isEqualTo(HttpStatus.OK.value());
         assertThat(response.body()).contains("Swagger UI");
+    }
+
+    @Test
+    void userAndStaffTokensAloneCannotQueryPkb() throws Exception {
+        for (var token : List.of("valid-user", "valid-staff")) {
+            var response = send(HttpRequest.newBuilder(uri("/api/pkb/items?userId=" + USER_ID))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token).GET().build());
+            assertThat(response.statusCode()).isEqualTo(401);
+            assertThat(response.body()).doesNotContain("fixture-query-only", USER_ID.toString());
+        }
     }
 
     @Test
@@ -110,7 +121,9 @@ class PkbItemQueryControllerSecurityTest {
     }
 
     private HttpResponse<String> getItem(String token, UUID requestedUserId) throws Exception {
-        var request = HttpRequest.newBuilder(uri("/api/pkb/items/" + ITEM.itemId() + "?userId=" + requestedUserId));
+        var request = HttpRequest.newBuilder(uri("/api/pkb/items/" + ITEM.itemId() + "?userId=" + requestedUserId))
+                .header("X-BioCompass-Service", "query-client")
+                .header("X-BioCompass-Service-Token", "fixture-query-only");
         if (token != null) {
             request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
         }

@@ -53,6 +53,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: test
+    env:
+      # Explicit fixture capability for this disposable local service and its E2E client only.
+      PKB_E2E_SERVICE_NAME: pkb-e2e-client
+      PKB_E2E_SERVICE_TOKEN: pkb-e2e-directed-secret
+      SPRING_APPLICATION_JSON: >-
+        {"biocompass":{"pkb":{"auth":{"legacy":{"service-tokens":{"pkb-e2e-client":"pkb-e2e-directed-secret"}}}}}}
 
     steps:
       - name: Check out repository
@@ -248,6 +254,8 @@ jobs:
         env:
           PKB_E2E_USERNAME: ${{ secrets.PKB_E2E_USERNAME }}
           PKB_E2E_PASSWORD: ${{ secrets.PKB_E2E_PASSWORD }}
+          PKB_E2E_SERVICE_NAME: ${{ secrets.PKB_E2E_SERVICE_NAME }}
+          PKB_E2E_SERVICE_TOKEN: ${{ secrets.PKB_E2E_SERVICE_TOKEN }}
           PKB_E2E_NAMESPACE: testing
           PKB_E2E_RUNNER_IMAGE: ghcr.io/bio-compass/pkb-service-e2e@${{ steps.runner-image.outputs.digest }}
         run: java src/ci/java/com/biocompass/pkb/ci/RunClusterE2e.java

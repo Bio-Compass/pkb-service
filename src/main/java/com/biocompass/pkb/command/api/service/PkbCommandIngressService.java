@@ -2,6 +2,7 @@ package com.biocompass.pkb.command.api.service;
 
 import com.biocompass.pkb.authorization.PkbAuthorizationRequest;
 import com.biocompass.pkb.authorization.PkbWriteAuthorizationService;
+import com.biocompass.pkb.auth.PkbServiceCallerResolver;
 import com.biocompass.pkb.command.api.model.PkbCommandAcceptedResponse;
 import com.biocompass.pkb.command.PkbCommandValidator;
 import com.biocompass.pkb.command.dto.PkbCommand;
@@ -23,8 +24,10 @@ public class PkbCommandIngressService {
     private final PkbWriteAuthorizationService authorizationService;
     private final BioCompassActorAuthenticationResolver actorResolver;
     private final PkbKafkaProperties kafkaProperties;
+    private final PkbServiceCallerResolver serviceCallerResolver;
 
     public PkbCommandAcceptedResponse submit(UUID commandId, String correlationId, PkbCommand<?> command) {
+        var producerService = serviceCallerResolver.resolve();
         if (!kafkaProperties.commandIngressEnabled()) {
             throw new PkbKafkaCommandPublicationException("PKB command ingress is disabled");
         }
@@ -37,7 +40,7 @@ public class PkbCommandIngressService {
                 actor.roles(),
                 actor.scopes(),
                 actor.purposeOfUse());
-        var context = new PkbKafkaCommandContext(kafkaProperties.producerService(), authorizationActor, null);
+        var context = new PkbKafkaCommandContext(producerService, authorizationActor, null);
         var decisionReference = authorizationService.authorize(commandId, command, context);
         commandSubmissionGateway.submit(commandId, command, context.withPriorDecisionReference(decisionReference));
         return PkbCommandAcceptedResponse.accepted(commandId, correlationId);

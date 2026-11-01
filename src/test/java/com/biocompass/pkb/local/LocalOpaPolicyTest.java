@@ -75,6 +75,22 @@ class LocalOpaPolicyTest {
         assertThat(response).contains("\"result\":true");
     }
 
+    @Test
+    void sourceRecordReadAndAggregateRequireTheSameReadCapability() throws Exception {
+        for (var action : java.util.List.of("read", "aggregate")) {
+            for (var scope : java.util.List.of("hydration:intake:read", "hydration:summary:read", "hydration:intake:create")) {
+                var response = evaluate("""
+                        {"input":{"action":"%s","command_id":"fixture-id","producer_service":"biocompass-watertracker-service",
+                        "actor":{"actor_id":"user-1","user_id":"user-1","roles":[],"scopes":["%s"],"purpose_of_use":"self"},
+                        "resource":{"command_type":"source_record","target_user_id":"user-1","privacy_scope":["health"],
+                        "consent_scope":[],"attributes":{"source_system":"biocompass-watertracker-service",
+                        "entity_type":"nutrition_intake","subtype":"water"}}}}
+                        """.formatted(action, scope));
+                assertThat(response).contains("\"result\":" + scope.equals("hydration:intake:read"));
+            }
+        }
+    }
+
     private static String evaluate(String inputJson) throws Exception {
         var request = HttpRequest.newBuilder(policyUri())
                 .timeout(Duration.ofSeconds(10))

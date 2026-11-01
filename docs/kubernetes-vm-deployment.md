@@ -96,7 +96,7 @@ Create GitHub environments `testing`, `prod`, and `prod-manual-approval`. Testin
 
 Each runtime environment needs its own `KUBE_CONFIG` secret. Credentials must access only the matching namespace. The legacy repository credential scoped to `bio-compass` cannot deploy to either new namespace. Configure `BIO_COMPASS_HELM_VALUES_SSH_KEY` as the existing repository-scoped read-only Helm deploy key. Application/database/S3 secrets remain in the namespace's existing `pkb-service-secrets`; the pipeline never re-renders them from legacy `dev` secrets. Helm environment values must use `secrets.create=false` and reference the existing Secret. Rendered Secret resources cause CI to fail.
 
-The `testing` GitHub environment also needs `PKB_E2E_USERNAME` (BAS email) and `PKB_E2E_PASSWORD`. The synthetic account must be active, email-verified and non-staff. Create/verify it through BAS's supported operator workflow; store its password directly in GitHub Secrets. Never use a production account or weaken BAS introspection for tests. BAS login is performed anew on every run, so no expiring user access token is saved in CI.
+The `testing` GitHub environment also needs `PKB_E2E_USERNAME` (BAS email), `PKB_E2E_PASSWORD`, `PKB_E2E_SERVICE_NAME` and `PKB_E2E_SERVICE_TOKEN`. The latter pair is an independently approved legacy PKB workload capability, configured separately in PKB under its default-empty allowlist; a BAS account alone cannot call PKB. See [service-only access](pkb-service-access.md) for the contract and the separate BAS authority prerequisite. Missing workload settings fail before resource creation or BAS login. This source change provisions no credentials. The synthetic account must be active, email-verified and non-staff. Create/verify it through BAS's supported operator workflow; store its password directly in GitHub Secrets. Never use a production account or weaken BAS introspection for tests. BAS login is performed anew on every run, so no expiring user access token is saved in CI.
 
 The deployer manifests in `deploy/kubernetes/sa-deployer` can be rendered for each namespace for administrator review:
 
@@ -121,7 +121,7 @@ kubectl --context biocompass-netcup -n testing port-forward service/pkb-service 
 kubectl --context biocompass-netcup -n testing port-forward service/bio-compass-auth 18081:80
 ```
 
-Then run with the account credentials supplied privately in the environment:
+Then run with both the account credentials and `PKB_E2E_SERVICE_NAME`/`PKB_E2E_SERVICE_TOKEN` supplied privately in the environment:
 
 ```sh
 PKB_E2E_NAMESPACE=testing PKB_E2E_BASE_URL=http://127.0.0.1:18080 \
@@ -142,7 +142,7 @@ This mode builds/publishes only the source-matched **test-runner** image and run
 
 `deploy/kubernetes/e2e/job.yaml` runs `ClusterE2eRunner` from an immutable `ghcr.io/bio-compass/pkb-service-e2e@sha256:...` image. `./gradlew prepareE2eRunner` assembles the existing E2E classes and dependencies; the container uses Java 25 and JUnit's launcher/XML reporter without downloading Gradle or dependencies inside the cluster. Local `e2eTest` and port-forward replay remain available.
 
-The Job uses namespace-local DNS (`pkb-service`, `bio-compass-auth`). PKB remains ClusterIP-only with no public ingress. The test pod runs as a non-root user with a read-only root filesystem, resource limits, no Kubernetes API token and no API role. Credentials are only the existing dedicated BAS testing account, supplied through a per-run Secret owned by the Job. CI creates this Secret through stdin; passwords are never command-line arguments or stored in review artifacts. The existing `ghcr-pull` registry secret is referenced for image pulls.
+The Job uses namespace-local DNS (`pkb-service`, `bio-compass-auth`). PKB remains ClusterIP-only with no public ingress. The test pod runs as a non-root user with a read-only root filesystem, resource limits, no Kubernetes API token and no API role. Credentials are the dedicated BAS testing account plus the independently approved incoming PKB workload capability, supplied through a per-run Secret owned by the Job. CI creates this Secret through stdin; passwords are never command-line arguments or stored in review artifacts. The existing `ghcr-pull` registry secret is referenced for image pulls.
 
 The Job has no test retries (`backoffLimit=0`), a five-minute active deadline and a thirty-minute TTL fallback. Java orchestration collects JUnit XML through bounded log records, requires nonempty successful results, and deletes the Job with foreground cascading cleanup of its pods and credential Secret. An always-run CI cleanup step covers interrupted runs. A failed Job, deadline, skipped/failed/errored tests, missing reports, or failed cleanup fails the gate. `pods/exec` permission is not needed. Existing namespace-scoped deployer Job/Secret/log permissions are sufficient; application rollout/readiness still uses Helm-owned machinery.
 

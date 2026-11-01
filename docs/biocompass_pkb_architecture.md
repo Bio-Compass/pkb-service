@@ -508,6 +508,23 @@ recovery and platform provisioning ownership; it is not deployment approval.
 
 ---
 
+## Updates and corrections
+
+PKB currently supports fact corrections through the legacy asynchronous command API's
+`POST /api/pkb/commands/items/{itemId}/supersessions`. A successful command creates a replacement
+with a new UUID, retains the original item, and atomically records the reciprocal `supersedes` /
+`superseded_by` links and provenance. `202 Accepted` confirms Kafka acknowledgement; the canonical
+replacement commits later. There is no general in-place `PUT` or `PATCH` operation.
+
+The [source-record API used by BWTS](pkb_record_api.md#updates-and-corrections) supports creation,
+reads, quantity aggregates and soft deletion, but exposes neither updates nor supersession.
+Changing an existing water intake (for example, 250 mL to 300 mL) is therefore not supported by
+this integration. Reusing an active record's idempotency key with changed content returns `409`; it is not an
+update. A future intake-edit workflow needs its own correction contract and authorization;
+this documentation does not add that capability.
+
+---
+
 ## Storage
 
 ```text
@@ -649,6 +666,14 @@ no endpoint or policy branch for Telegram, mobile, browser or BWTS. BAS verifies
 user authority for an explicitly approved backend/resource relation. PKB authenticates the
 producer independently and enforces a bound AU decision before disclosure or mutation.
 Hydration calculations, client-facing APIs and BUPS day semantics stay with BWTS.
+
+In the current BWTS policy contract, raw reads and quantity aggregates share
+`hydration:intake:read`; `aggregate` remains a distinct AU operation. PKB authorizes every
+contributing UUID through complete bounded pages before calculation in the same database snapshot.
+Any item denial rejects the whole aggregate. BAS token grants remain unchanged, so summary-only
+authority cannot obtain PKB-backed summaries/statistics/quick-add values. The adapter's existing
+denial mapping returns a bounded BWTS `503`; PostgreSQL retains its current summary-only behavior.
+The [record contract](pkb_record_api.md#authentication-and-policy) records the exact boundary.
 
 The [central companion](https://github.com/Bio-Compass/bio-compass-architecture-docs/blob/codex/pkb-62-client-neutral-integration/docs/decisions/project-decision-log.md#decision-pkb62-client-neutral-records)
 remains proposed and pending publication. This branch's source does not prove deployment,

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -62,6 +63,11 @@ class PkbServiceE2eTest {
             "pkb.e2e.introspection-service-token",
             setting("PKB_AUTH_INTROSPECTION_SERVICE_TOKEN", "pkb.auth.introspection.service-token", "pkb-local-introspection-secret"));
 
+    private static final String serviceName = deployed() ? System.getenv().getOrDefault("PKB_E2E_SERVICE_NAME", "")
+            : setting("PKB_E2E_SERVICE_NAME", "pkb.e2e.service-name", "pkb-e2e-client");
+    private static final String serviceToken = deployed() ? System.getenv().getOrDefault("PKB_E2E_SERVICE_TOKEN", "")
+            : setting("PKB_E2E_SERVICE_TOKEN", "pkb.e2e.service-token", "pkb-e2e-directed-secret");
+    private static final AtomicInteger introspectionCalls = new AtomicInteger();
     private static HttpServer introspectionServer;
     private static DeployedE2eSession deployedSession;
 
@@ -154,6 +160,34 @@ class PkbServiceE2eTest {
         var response = get("/api/pkb/items/" + UUID.randomUUID() + "?userId=" + ownerUserId, ownerUserId);
         assertThat(response.statusCode()).isEqualTo(404);
         assertThat(response.jsonObject()).containsEntry("code", "pkb_item_not_found");
+    }
+
+    @Test
+    void rejectsUserOnlyAndSpoofedServiceRequestsBeforeBas() throws Exception {
+        int before = introspectionCalls.get();
+        var userTokens = deployed() ? List.of(deployedSession.accessToken())
+                : List.of(tokenFor(ownerUserId, false), tokenFor(staffUserId, true));
+        for (var userToken : userTokens) {
+            var request = HttpRequest.newBuilder(URI.create(baseUrl + itemsPath(ownerUserId)))
+                    .header("Authorization", "Bearer " + userToken).GET().build();
+            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(401);
+            assertThat(response.body().contains(serviceToken) || response.body().contains(userToken)).isFalse();
+        }
+        for (var path : List.of("/api/pkb/commands/items", "/api/pkb/commands/relationships",
+                "/api/pkb/commands/artifacts", "/api/pkb/commands/items/" + UUID.randomUUID() + "/supersessions",
+                "/api/pkb/commands/artifacts/" + UUID.randomUUID() + "/associations")) {
+            var request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                    .header("Authorization", "Bearer " + tokenFor(ownerUserId, false))
+                    .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("not json")).build();
+            assertThat(httpClient.send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(401);
+        }
+        var spoofed = HttpRequest.newBuilder(URI.create(baseUrl + itemsPath(ownerUserId)))
+                .header("Authorization", "Bearer " + tokenFor(ownerUserId, false))
+                .header("X-BioCompass-Service", "not-approved")
+                .header("X-BioCompass-Service-Token", serviceToken).GET().build();
+        assertThat(httpClient.send(spoofed, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(401);
+        if (!deployed()) assertThat(introspectionCalls.get()).isEqualTo(before);
     }
 
     @Test
@@ -378,6 +412,14 @@ class PkbServiceE2eTest {
             assertThat(itemCount(ownerUserId, sourceId)).isEqualTo(1);
             assertThat(processedCommandCount(commandId)).isEqualTo(1);
         });
+        try (var connection = connection();
+             var statement = connection.prepareStatement("SELECT producer_service FROM pkb_processed_command WHERE command_id=?")) {
+            statement.setObject(1, commandId);
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString(1)).isEqualTo(serviceName);
+            }
+        }
         int initialDeliveryCount = processedCommandDeliveryCount(commandId);
         assertThat(initialDeliveryCount).isPositive();
 
@@ -490,7 +532,9 @@ class PkbServiceE2eTest {
                 .timeout(Duration.ofSeconds(10))
                 .GET();
         if (bearerToken != null) {
-            builder.header("Authorization", "Bearer " + bearerToken);
+            builder.header("Authorization", "Bearer " + bearerToken)
+                    .header("X-BioCompass-Service", serviceName)
+                    .header("X-BioCompass-Service-Token", serviceToken);
         }
 
         var response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
@@ -506,6 +550,8 @@ class PkbServiceE2eTest {
         var request = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(10))
                 .header("Authorization", "Bearer " + bearerToken)
+                .header("X-BioCompass-Service", serviceName)
+                .header("X-BioCompass-Service-Token", serviceToken)
                 .header("X-Command-Id", commandId.toString())
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
@@ -521,6 +567,7 @@ class PkbServiceE2eTest {
     }
 
     private static void handleIntrospection(HttpExchange exchange) throws IOException {
+        introspectionCalls.incrementAndGet();
         if (!"POST".equals(exchange.getRequestMethod())) {
             sendJson(exchange, 405, "{\"active\":false}");
             return;

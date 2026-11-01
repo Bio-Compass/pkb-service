@@ -184,22 +184,11 @@ public class PkbSourceRecordStore {
                 .param("unit", unit).param("limit", limit).query((rs, row) -> rs.getBigDecimal("amount")).list();
     }
 
-    public List<PkbSourceRecordGovernance> governanceGroups(UUID userId, String producer, String entityType,
-                                                           String subtype, Instant from, Instant before) {
-        var query = category(owned(jdbc.sql("""
-                        SELECT DISTINCT i.source_type, i.privacy_scope, i.consent_scope FROM pkb_item i WHERE
-                        """ + OWNED + ACTIVE + " AND i.entity_type = :entity AND i.subtype = :subtype"
-                        + (from == null ? "" : " AND i.observed_at >= :from")
-                        + (before == null ? "" : " AND i.observed_at < :before") + " LIMIT 101"), userId, producer), entityType, subtype);
-        if (from != null) query.param("from", timestamp(from));
-        if (before != null) query.param("before", timestamp(before));
-        return governanceGroups(query);
-    }
-
-    public List<PkbSourceRecordGovernance> governanceGroupsForWindows(UUID userId, String producer,
-            String entityType, String subtype, List<PkbQuantityWindow> windows) {
+    /** Bounded keyset pages of all contributing items; empty windows mean all observation times. */
+    public List<PkbSourceRecordAccess> aggregationItems(UUID userId, String producer, String entityType,
+            String subtype, String unit, List<PkbQuantityWindow> windows, UUID afterId, int limit) {
         validateWindows(windows);
-        if (windows.isEmpty()) return List.of();
+        if (limit < 1 || limit > 500) throw new IllegalArgumentException("Invalid aggregation page limit");
         var predicates = new StringBuilder();
         for (int index = 0; index < windows.size(); index++) {
             if (index > 0) predicates.append(" OR ");
@@ -207,23 +196,20 @@ public class PkbSourceRecordStore {
                     .append(" AND i.observed_at < :before").append(index).append(")");
         }
         var query = category(owned(jdbc.sql("""
-                        SELECT DISTINCT i.source_type, i.privacy_scope, i.consent_scope FROM pkb_item i WHERE
+                        SELECT i.pkb_item_id, i.source_type, i.privacy_scope, i.consent_scope FROM pkb_item i WHERE
                         """ + OWNED + ACTIVE + " AND i.entity_type = :entity AND i.subtype = :subtype"
-                        + " AND (" + predicates + ") LIMIT 101"), userId, producer), entityType, subtype);
+                        + " AND i.payload ->> 'unit' = :unit"
+                        + (windows.isEmpty() ? "" : " AND (" + predicates + ")")
+                        + (afterId == null ? "" : " AND i.pkb_item_id > :after")
+                        + " ORDER BY i.pkb_item_id LIMIT :limit"), userId, producer), entityType, subtype)
+                .param("unit", unit).param("limit", limit);
+        if (afterId != null) query.param("after", afterId);
         for (int index = 0; index < windows.size(); index++) {
             query.param("from" + index, timestamp(windows.get(index).from()))
                     .param("before" + index, timestamp(windows.get(index).before()));
         }
-        return governanceGroups(query);
-    }
-
-    private static List<PkbSourceRecordGovernance> governanceGroups(JdbcClient.StatementSpec query) {
-        var groups = query.query((rs, row) -> new PkbSourceRecordGovernance(rs.getString("source_type"),
-                strings(rs, "privacy_scope"), strings(rs, "consent_scope"))).list();
-        if (groups.size() > 100) {
-            throw new org.springframework.dao.DataAccessResourceFailureException("Governance group limit exceeded");
-        }
-        return groups;
+        return query.query((rs, row) -> new PkbSourceRecordAccess(rs.getObject("pkb_item_id", UUID.class),
+                rs.getString("source_type"), strings(rs, "privacy_scope"), strings(rs, "consent_scope"))).list();
     }
 
     private static void validateWindows(List<PkbQuantityWindow> windows) {
