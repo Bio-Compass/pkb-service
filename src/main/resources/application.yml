@@ -40,6 +40,8 @@ biocompass:
       relay-interval: ${PKB_EVENTING_RELAY_INTERVAL:PT1S}
       relay-batch-size: ${PKB_EVENTING_RELAY_BATCH_SIZE:50}
       consumer-name: ${PKB_EVENTING_CONSUMER_NAME:pkb-enrichment}
+      dead-letter-topic: ${PKB_EVENTING_DLT_TOPIC:pkb.events.dlt.v1}
+      replay-topic: ${PKB_EVENTING_REPLAY_TOPIC:pkb.events.replay.v1}
       topic-partitions: ${PKB_EVENTING_TOPIC_PARTITIONS:3}
       publish-timeout: ${PKB_EVENTING_PUBLISH_TIMEOUT:PT5S}
     authorization:

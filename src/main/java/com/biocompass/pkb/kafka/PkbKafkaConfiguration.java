@@ -1,10 +1,12 @@
 package com.biocompass.pkb.kafka;
 
 import com.biocompass.pkb.authorization.PkbAuthorizationUnavailableException;
+import com.biocompass.pkb.eventing.PkbEventingProperties;
 import java.util.Map;
-import org.apache.kafka.common.TopicPartition;
+import org.springframework.beans.factory.annotation.Value;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -20,6 +22,7 @@ import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(PkbEventingProperties.class)
 public class PkbKafkaConfiguration {
 
     @Bean
@@ -30,11 +33,13 @@ public class PkbKafkaConfiguration {
     @Bean
     CommonErrorHandler pkbKafkaErrorHandler(
             KafkaTemplate<String, Object> kafkaTemplate,
-            PkbKafkaProperties properties
+            PkbKafkaProperties properties,
+            PkbEventingProperties eventingProperties,
+            @Value("${spring.kafka.template.default-topic}") String commandTopic
     ) {
         var recoverer = new DeadLetterPublishingRecoverer(
                 kafkaTemplate,
-                (record, exception) -> new TopicPartition(properties.deadLetterTopic(), record.partition()));
+                new PkbDeadLetterDestinationResolver(commandTopic, properties, eventingProperties));
         recoverer.setFailIfSendResultIsError(true);
 
         var retry = properties.retry();

@@ -18,8 +18,10 @@ public class PkbKafkaEventingConfiguration {
 
     @Bean
     KafkaAdmin.NewTopics pkbEventTopics(PkbEventingProperties eventingProperties) {
-        var topics = java.util.Arrays.stream(PkbDomainEventType.values())
-                .map(eventType -> TopicBuilder.name(eventType.value())
+        var topics = java.util.stream.Stream.concat(
+                        java.util.Arrays.stream(PkbDomainEventType.values()).map(PkbDomainEventType::value),
+                        java.util.stream.Stream.of(eventingProperties.deadLetterTopic(), eventingProperties.replayTopic()))
+                .map(topic -> TopicBuilder.name(topic)
                         .partitions(eventingProperties.topicPartitions())
                         .replicas(1)
                         .build())

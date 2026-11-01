@@ -58,7 +58,7 @@ class PkbOutboxRelayTest {
         return new PkbOutboxRelay(
                 outboxEventDao,
                 kafkaEventPublisher,
-                new PkbEventingProperties(false, null, 50, "pkb-enrichment", 3, Duration.ofSeconds(5))
+                new PkbEventingProperties(false, null, 50, "pkb-enrichment", 3, Duration.ofSeconds(5), null, null)
         );
     }
 }
