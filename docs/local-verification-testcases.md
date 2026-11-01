@@ -191,3 +191,11 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
 - Startup topic verification checks event DLT/replay creation and matching partition counts.
   Without an enrichment workflow, no event consumer starts; production provisioning and replay
   credentials remain separate platform-owner work. See [recovery procedure](kafka-command-ingress.md#domain-event-failure-recovery-74).
+
+## BAS introspection HTTP framing (#68)
+
+| ID | Verification | Expected result |
+| --- | --- | --- |
+| AUTH-TRANSPORT-001 | `./gradlew test --tests com.biocompass.pkb.auth.BioCompassTokenIntrospectionClientTest --no-daemon` | Spring-managed client sends the exact token JSON with its UTF-8 Content-Length and no chunked transfer encoding to a real HTTP server. Active/inactive and credential rejection behavior remain covered. |
+
+BAS on the testing cluster requires fixed-length JSON requests. Spring buffers the small introspection payload before transmission; service credentials, response parsing, and configured connect/read timeouts are preserved.

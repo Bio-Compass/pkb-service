@@ -502,6 +502,10 @@ Post-commit domain events use a transactional outbox and different topics,
 including dedicated event DLT and operator-only replay topics. Failed enrichment
 events must never enter command replay. See [Kafka Command Ingress](kafka-command-ingress.md).
 
+The [central recovery-path companion](https://github.com/Bio-Compass/bio-compass-architecture-docs/pull/13)
+is **proposed** and pending architecture review. It records separated event/command
+recovery and platform provisioning ownership; it is not deployment approval.
+
 ---
 
 ## Storage
