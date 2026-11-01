@@ -1,5 +1,12 @@
 package com.biocompass.pkb.persistence;
 
+import com.biocompass.pkb.records.PkbRecordAuthority;
+import com.biocompass.pkb.records.PkbRecordController;
+import com.biocompass.pkb.records.PkbRecordRequests;
+import com.biocompass.pkb.authorization.PkbAuthorizationGateway;
+import com.biocompass.pkb.authorization.PkbAuthorizationRequest;
+import com.biocompass.pkb.authorization.PkbAuthorizationDecision;
+import com.biocompass.pkb.records.persistence.PkbSourceRecordAccess;
 import com.biocompass.pkb.records.persistence.PkbQuantityWindow;
 import com.biocompass.pkb.records.persistence.PkbSourceRecord;
 import com.biocompass.pkb.records.persistence.PkbSourceRecordConflict;
@@ -7,6 +14,9 @@ import com.biocompass.pkb.records.persistence.PkbSourceRecordCreate;
 import com.biocompass.pkb.records.persistence.PkbSourceRecordCursor;
 import com.biocompass.pkb.records.persistence.PkbSourceRecordStore;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -26,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.any;
 
 @ActiveProfiles("test")
 @SpringBootTest
@@ -36,6 +48,8 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
     @Autowired private PkbSourceRecordStore store;
     @Autowired private JdbcClient jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private PkbRecordController controller;
+    @MockitoBean private PkbAuthorizationGateway gateway;
 
     @Test
     void commitsExactCanonicalQuantityProvenanceKeyAndOutboxTogether() {
@@ -258,75 +272,94 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     @Test
-    void governanceGroupsReturnActualActiveMetadataWithinRequestedRange() {
+    void aggregationItemsCarryEveryActualIdentityAndGovernanceWithoutGroupLimit() {
         var user = UUID.randomUUID();
-        store.create(input(user, "250", START, START));
-        var restricted = input(user, "300", START.plusSeconds(1), START);
-        store.create(new PkbSourceRecordCreate(restricted.itemId(), user, PRODUCER, restricted.sourceRecordId(),
-                restricted.idempotencyKey(), restricted.fingerprint(), restricted.entityType(), restricted.subtype(),
-                restricted.value(), restricted.unit(), restricted.observedAt(), restricted.recordedAt(), "device",
-                List.of("restricted"), List.of("explicit-consent"), restricted.workflowId()));
-        assertThat(store.governanceGroups(user, PRODUCER, "nutrition_intake", "water", START, START.plusSeconds(1)))
-                .singleElement().satisfies(group -> assertThat(group.privacyScope()).containsExactly("nutrition", "health"));
-        assertThat(store.governanceGroups(user, PRODUCER, "nutrition_intake", "water", null, null)).hasSize(2);
-    }
-
-    @Test
-    void governanceGroupLimitIsASafeDependencyFailure() {
-        var user = UUID.randomUUID();
-        for (int index = 0; index <= 100; index++) {
-            var record = input(user, "250", START, START);
-            store.create(new PkbSourceRecordCreate(record.itemId(), user, PRODUCER, record.sourceRecordId(),
-                    record.idempotencyKey(), record.fingerprint(), record.entityType(), record.subtype(),
-                    record.value(), record.unit(), record.observedAt(), record.recordedAt(), record.sourceType(),
-                    List.of("privacy-" + index), List.of(), record.workflowId()));
+        var ids = new java.util.HashSet<UUID>();
+        for (int index = 0; index < 101; index++) {
+            var record = withGovernance(input(user, "250", START, START), user, PRODUCER, List.of("privacy-" + index));
+            store.create(record); ids.add(record.itemId());
         }
-        assertThatThrownBy(() -> store.governanceGroups(user, PRODUCER, "nutrition_intake", "water", null, null))
-                .isInstanceOf(org.springframework.dao.DataAccessResourceFailureException.class);
-        assertThatThrownBy(() -> store.governanceGroupsForWindows(user, PRODUCER, "nutrition_intake", "water",
-                List.of(new PkbQuantityWindow(START, START.plusSeconds(1)))))
-                .isInstanceOf(org.springframework.dao.DataAccessResourceFailureException.class);
-        assertThat(store.governanceGroupsForWindows(user, PRODUCER, "nutrition_intake", "water", List.of())).isEmpty();
-    }
-
-    @Test
-    void governanceWindowsExcludeGapsEndpointsOtherOwnersProducersAndDeletedRecords() {
-        var user = UUID.randomUUID();
-        store.create(input(user, "250", START, START));
-        store.create(input(user, "350", START.plusSeconds(4), START));
-        for (int second : List.of(1, 2, 5)) {
-            store.create(withGovernance(input(user, "900", START.plusSeconds(second), START), user,
-                    PRODUCER, List.of("excluded-" + second)));
+        UUID after = null;
+        var found = new java.util.ArrayList<PkbSourceRecordAccess>();
+        while (true) {
+            var page = store.aggregationItems(user, PRODUCER, "nutrition_intake", "water", "mL", List.of(), after, 25);
+            found.addAll(page);
+            if (page.size() < 25) break;
+            after = page.getLast().itemId();
         }
-        var deleted = withGovernance(input(user, "900", START, START), user, PRODUCER, List.of("deleted"));
-        store.create(deleted);
-        store.delete(user, PRODUCER, deleted.itemId());
-        var otherUser = UUID.randomUUID();
-        store.create(withGovernance(input(otherUser, "900", START, START), otherUser, PRODUCER, List.of("other-owner")));
-        store.create(withGovernance(input(user, "900", START, START), user, "other-producer", List.of("other-producer")));
-
-        var groups = store.governanceGroupsForWindows(user, PRODUCER, "nutrition_intake", "water", List.of(
-                new PkbQuantityWindow(START, START.plusSeconds(1)),
-                new PkbQuantityWindow(START.plusSeconds(4), START.plusSeconds(5))));
-
-        assertThat(groups).singleElement().satisfies(group -> {
-            assertThat(group.sourceType()).isEqualTo("self_reported");
-            assertThat(group.privacyScope()).containsExactly("nutrition", "health");
-            assertThat(group.consentScope()).isEmpty();
+        assertThat(found).hasSize(101).extracting(PkbSourceRecordAccess::itemId).containsExactlyInAnyOrderElementsOf(ids);
+        assertThat(found).allSatisfy(item -> {
+            assertThat(item.sourceType()).isEqualTo("self_reported");
+            assertThat(item.privacyScope()).hasSize(1);
+            assertThat(item.consentScope()).isEmpty();
         });
+        assertThat(store.aggregationItems(user, PRODUCER, "nutrition_intake", "water", "L", List.of(), null, 500)).isEmpty();
+        for (int limit : List.of(0, 501)) {
+            assertThatThrownBy(() -> store.aggregationItems(user, PRODUCER, "nutrition_intake", "water", "mL", List.of(), null, limit))
+                    .isInstanceOf(InvalidDataAccessApiUsageException.class);
+        }
     }
 
     @Test
-    void governanceWindowsDeduplicateOverlapsAndRejectUnboundedRequests() {
+    void aggregationItemsUseExactUnionOfWindowsAndOwnerProducerActiveFilters() {
         var user = UUID.randomUUID();
-        store.create(input(user, "250", START, START));
+        var first = input(user, "250", START, START);
+        var second = input(user, "250", START.plusSeconds(4), START);
+        store.create(first); store.create(second);
+        for (int offset : List.of(1, 2, 5)) store.create(input(user, "900", START.plusSeconds(offset), START));
+        var deleted = input(user, "900", START, START);store.create(deleted);store.delete(user, PRODUCER, deleted.itemId());
+        var other = UUID.randomUUID();store.create(input(other, "900", START, START));
+        store.create(withGovernance(input(user, "900", START, START), user, "other-producer", List.of("health")));
+        var windows = List.of(new PkbQuantityWindow(START, START.plusSeconds(1)),
+                new PkbQuantityWindow(START.plusSeconds(4), START.plusSeconds(5)));
+        assertThat(store.aggregationItems(user, PRODUCER, "nutrition_intake", "water", "mL", windows, null, 500))
+                .extracting(PkbSourceRecordAccess::itemId).containsExactlyInAnyOrder(first.itemId(), second.itemId());
+        assertThat(store.aggregationItems(user, PRODUCER, "nutrition_intake", "different", "mL", windows, null, 500)).isEmpty();
+    }
+
+    @Test
+    void aggregationItemsDeduplicateOverlappingWindowsAndValidateBounds() {
+        var user = UUID.randomUUID();var record = input(user, "250", START, START);store.create(record);
         var window = new PkbQuantityWindow(START, START.plusSeconds(2));
-        assertThat(store.governanceGroupsForWindows(user, PRODUCER, "nutrition_intake", "water",
-                java.util.Collections.nCopies(30, window))).hasSize(1);
-        assertThatThrownBy(() -> store.governanceGroupsForWindows(user, PRODUCER, "nutrition_intake", "water",
-                java.util.Collections.nCopies(31, window))).isInstanceOf(InvalidDataAccessApiUsageException.class);
-        assertThatThrownBy(() -> store.governanceGroupsForWindows(user, PRODUCER, "nutrition_intake", "water",
-                List.of(new PkbQuantityWindow(START, START)))).isInstanceOf(InvalidDataAccessApiUsageException.class);
+        assertThat(store.aggregationItems(user, PRODUCER, "nutrition_intake", "water", "mL",
+                java.util.Collections.nCopies(30, window), null, 500)).singleElement()
+                .satisfies(item -> assertThat(item.itemId()).isEqualTo(record.itemId()));
+        assertThatThrownBy(() -> store.aggregationItems(user, PRODUCER, "nutrition_intake", "water", "mL",
+                java.util.Collections.nCopies(31, window), null, 500)).isInstanceOf(InvalidDataAccessApiUsageException.class);
+        assertThatThrownBy(() -> store.aggregationItems(user, PRODUCER, "nutrition_intake", "water", "mL",
+                List.of(new PkbQuantityWindow(START, START)), null, 500)).isInstanceOf(InvalidDataAccessApiUsageException.class);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void authorizationAndAggregationShareSnapshotDespiteConcurrentInsertAndDeletion(boolean recent) throws Exception {
+        var user = UUID.randomUUID();var original = input(user, "250", START, START);store.create(original);
+        var inserted = input(user, "900", START.plusSeconds(1), START);
+        var observed = new java.util.ArrayList<UUID>();
+        doAnswer(invocation -> {
+            PkbAuthorizationRequest request = invocation.getArgument(0);
+            assertThat(jdbc.sql("SHOW transaction_isolation").query(String.class).single()).isEqualTo("repeatable read");
+            var id = request.resource().identifiers().get("item_id");
+            if (id != null) {
+                observed.add(id);
+                try (var executor = Executors.newSingleThreadExecutor()) {
+                    executor.submit(() -> { store.create(inserted);store.delete(user, PRODUCER, original.itemId()); })
+                            .get(10, TimeUnit.SECONDS);
+                }
+            }
+            return new PkbAuthorizationDecision(true, "snapshot-test", request.action(), user, java.util.Map.of());
+        }).when(gateway).decide(any());
+        var authority = new PkbRecordAuthority(user, user.toString(), PRODUCER,
+                java.util.Set.of("hydration:intake:read"), "self");
+        if (recent) {
+            assertThat(controller.recent(authority, "nutrition_intake", "water", "mL", 3).values()).containsExactly("250");
+        } else {
+            var request = new PkbRecordRequests.Totals("nutrition_intake", "water", "mL",
+                    List.of(new PkbRecordRequests.Window(START, START.plusSeconds(3))));
+            assertThat(controller.totals(authority, request).totals()).containsExactly("250");
+        }
+        assertThat(observed).containsExactly(original.itemId());
+        assertThat(store.recentQuantities(user, PRODUCER, "nutrition_intake", "water", "mL", 3))
+                .containsExactly(new BigDecimal("900"));
     }
 
     private static PkbSourceRecordCreate withGovernance(PkbSourceRecordCreate input, UUID user,

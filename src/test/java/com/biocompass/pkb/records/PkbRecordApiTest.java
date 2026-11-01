@@ -100,10 +100,9 @@ class PkbRecordApiTest {
         when(store.create(any())).thenAnswer(invocation -> new PkbSourceRecordWriteResult("created", fromCreate(invocation.getArgument(0))));
         when(store.find(USER, PRODUCER, ITEM)).thenReturn(Optional.of(item()));
         when(store.findIncludingDeleted(USER, PRODUCER, ITEM)).thenReturn(Optional.of(item()));
-        when(store.governanceGroups(any(), anyString(), anyString(), anyString(), nullable(Instant.class), nullable(Instant.class)))
-                .thenReturn(List.of(new PkbSourceRecordGovernance("device", List.of("health"), List.of("self"))));
-        when(store.governanceGroupsForWindows(any(), anyString(), anyString(), anyString(), anyList()))
-                .thenReturn(List.of(new PkbSourceRecordGovernance("device", List.of("health"), List.of("self"))));
+        when(store.aggregationItems(any(), anyString(), anyString(), anyString(), anyString(), anyList(),
+                nullable(UUID.class), anyInt()))
+                .thenReturn(List.of(new PkbSourceRecordAccess(ITEM, "device", List.of("health"), List.of("self"))));
         when(store.totals(any(), anyString(), anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(List.of(new BigDecimal("4294967294")));
         when(store.recentQuantities(any(), anyString(), anyString(), anyString(), anyString(), anyInt()))
@@ -305,45 +304,102 @@ class PkbRecordApiTest {
         verifyNoInteractions(store, gateway);
     }
 
-    @Test void aggregateOnlyPermissionDoesNotGrantRawRecordRead() throws Exception {
+    @Test void summaryOnlyPermissionDoesNotGrantRawReadsOrAggregates() throws Exception {
         BAS_BODY.set(activeResponse(PRODUCER, "[\"hydration:summary:read\"]"));
-        doAnswer(invocation -> {
-            PkbAuthorizationRequest request = invocation.getArgument(0);
-            return decision(!request.action().equals("read"), request.action());
-        }).when(gateway).decide(any());
+        enforceReadCapability();
         mvc.perform(auth(get(BASE + "/" + ITEM))).andExpect(status().isForbidden());
         mvc.perform(auth(post(BASE + "/quantity-totals")).contentType(MediaType.APPLICATION_JSON).content(totals()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.totals[0]").value("4294967294"));
-        var capture = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
-        verify(gateway, times(3)).decide(capture.capture());
-        assertThat(capture.getAllValues()).extracting(PkbAuthorizationRequest::action).containsExactly("read", "aggregate", "aggregate");
-        assertThat(capture.getAllValues()).allSatisfy(request ->
-                assertThat(request.actor().scopes()).containsExactly("hydration:summary:read"));
+                .andExpect(status().isForbidden());
+        mvc.perform(auth(recentRequest())).andExpect(status().isForbidden());
+        verify(store).find(USER, PRODUCER, ITEM);
+        verifyNoMoreInteractions(store);
     }
 
-    @Test void denyingActualGovernanceGroupPreventsAnyAggregateQuery() throws Exception {
-        doAnswer(invocation -> {
-            PkbAuthorizationRequest request = invocation.getArgument(0);
-            return decision(request.resource().privacyScope().isEmpty(), request.action());
-        }).when(gateway).decide(any());
+    @Test void intakeReadPermissionGrantsRawReadsAndItemAuthorizedAggregates() throws Exception {
+        BAS_BODY.set(activeResponse(PRODUCER, "[\"hydration:intake:read\"]"));
+        enforceReadCapability();
+        mvc.perform(auth(get(BASE + "/" + ITEM))).andExpect(status().isOk());
         mvc.perform(auth(post(BASE + "/quantity-totals")).contentType(MediaType.APPLICATION_JSON).content(totals()))
-                .andExpect(status().isForbidden());
-        verify(store, never()).totals(any(), anyString(), anyString(), anyString(), anyString(), anyList());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totals[0]").value("4294967294"));
+        mvc.perform(auth(recentRequest())).andExpect(status().isOk()).andExpect(jsonPath("$.values[0]").value("250"));
         var capture = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
-        verify(gateway, times(2)).decide(capture.capture());
-        assertThat(capture.getAllValues().getLast().resource().privacyScope()).containsExactly("health");
-        assertThat(capture.getAllValues().getLast().resource().consentScope()).containsExactly("self");
+        verify(gateway, times(5)).decide(capture.capture());
+        assertThat(capture.getAllValues()).extracting(PkbAuthorizationRequest::action)
+                .containsExactly("read", "aggregate", "aggregate", "aggregate", "aggregate");
+        assertThat(capture.getAllValues()).allSatisfy(request ->
+                assertThat(request.actor().scopes()).containsExactly("hydration:intake:read"));
+        assertThat(capture.getAllValues().stream().filter(request -> request.action().equals("aggregate")
+                && !request.resource().identifiers().isEmpty())).hasSize(2).allSatisfy(request ->
+                assertThat(request.resource().identifiers()).containsEntry("item_id", ITEM));
     }
 
-    @Test void denyingGovernanceGroupAlsoPreventsRecentValues() throws Exception {
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void itemSpecificDenialOnLaterPageRejectsEntireAggregate(boolean recent) throws Exception {
+        var firstPage = java.util.stream.LongStream.rangeClosed(1, 500)
+                .mapToObj(i -> new PkbSourceRecordAccess(new UUID(0, i), "device", List.of("health"), List.of("self"))).toList();
+        var deniedId = new UUID(0, 501);
+        doReturn(firstPage).when(store).aggregationItems(any(), anyString(), anyString(), anyString(), anyString(),
+                anyList(), isNull(), eq(500));
+        doReturn(List.of(new PkbSourceRecordAccess(deniedId, "device", List.of("health"), List.of("self"))))
+                .when(store).aggregationItems(any(), anyString(), anyString(), anyString(), anyString(), anyList(),
+                        eq(firstPage.getLast().itemId()), eq(500));
         doAnswer(invocation -> {
             PkbAuthorizationRequest request = invocation.getArgument(0);
-            return decision(request.resource().sourceType() == null, request.action());
+            return decision(!deniedId.equals(request.resource().identifiers().get("item_id")), request.action());
         }).when(gateway).decide(any());
-        mvc.perform(auth(get(BASE + "/recent-quantities").queryParam("entity_type", "nutrition_intake")
-                        .queryParam("subtype", "water").queryParam("unit", "mL")))
-                .andExpect(status().isForbidden());
+        var request = recent ? recentRequest() : post(BASE + "/quantity-totals")
+                .contentType(MediaType.APPLICATION_JSON).content(totals());
+        mvc.perform(auth(request)).andExpect(status().isForbidden()).andExpect(jsonPath("$.totals").doesNotExist())
+                .andExpect(jsonPath("$.values").doesNotExist());
+        verify(store, never()).totals(any(), anyString(), anyString(), anyString(), anyString(), anyList());
         verify(store, never()).recentQuantities(any(), anyString(), anyString(), anyString(), anyString(), anyInt());
+        var capture = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
+        verify(gateway, times(502)).decide(capture.capture());
+        assertThat(capture.getAllValues().getLast().resource().identifiers()).containsEntry("item_id", deniedId);
+    }
+
+    @Test void aggregationFollowsEveryPageBeforeExecutingTheQuantityQuery() throws Exception {
+        var firstPage = java.util.stream.LongStream.rangeClosed(1, 500)
+                .mapToObj(i -> new PkbSourceRecordAccess(new UUID(0, i), "device", List.of("health"), List.of())).toList();
+        var last = new PkbSourceRecordAccess(new UUID(0, 501), "device", List.of("health"), List.of());
+        doReturn(firstPage).when(store).aggregationItems(any(), anyString(), anyString(), anyString(), anyString(),
+                anyList(), isNull(), eq(500));
+        doReturn(List.of(last)).when(store).aggregationItems(any(), anyString(), anyString(), anyString(), anyString(),
+                anyList(), eq(firstPage.getLast().itemId()), eq(500));
+        mvc.perform(auth(post(BASE + "/quantity-totals")).contentType(MediaType.APPLICATION_JSON).content(totals()))
+                .andExpect(status().isOk());
+        var order = inOrder(gateway, store);
+        order.verify(gateway).decide(argThat(request -> request.resource().identifiers().isEmpty()));
+        order.verify(store).aggregationItems(eq(USER), eq(PRODUCER), eq("nutrition_intake"), eq("water"), eq("mL"),
+                anyList(), isNull(), eq(500));
+        order.verify(gateway, times(500)).decide(argThat(request -> request.resource().identifiers().size() == 1));
+        order.verify(store).aggregationItems(eq(USER), eq(PRODUCER), eq("nutrition_intake"), eq("water"), eq("mL"),
+                anyList(), eq(firstPage.getLast().itemId()), eq(500));
+        order.verify(gateway).decide(argThat(request -> last.itemId().equals(request.resource().identifiers().get("item_id"))));
+        order.verify(store).totals(any(), anyString(), anyString(), anyString(), anyString(), anyList());
+    }
+
+    @Test void itemDecisionFailurePreventsAggregateCalculation() throws Exception {
+        doAnswer(invocation -> {
+            PkbAuthorizationRequest request = invocation.getArgument(0);
+            if (!request.resource().identifiers().isEmpty()) throw new PkbAuthorizationUnavailableException("private upstream");
+            return decision(true, request.action());
+        }).when(gateway).decide(any());
+        mvc.perform(auth(recentRequest())).andExpect(status().isServiceUnavailable())
+                .andExpect(content().string(not(containsString("private upstream"))));
+        verify(store, never()).recentQuantities(any(), anyString(), anyString(), anyString(), anyString(), anyInt());
+    }
+
+    private void enforceReadCapability() {
+        doAnswer(invocation -> {
+            PkbAuthorizationRequest request = invocation.getArgument(0);
+            return decision(request.actor().scopes().contains("hydration:intake:read"), request.action());
+        }).when(gateway).decide(any());
+    }
+
+    private static MockHttpServletRequestBuilder recentRequest() {
+        return get(BASE + "/recent-quantities").queryParam("entity_type", "nutrition_intake")
+                .queryParam("subtype", "water").queryParam("unit", "mL");
     }
 
     @Test void historyFollowsKeysetCursorAndAuthorizesActualReturnedRows() throws Exception {

@@ -30,12 +30,25 @@ is rejected. AU receives action `create`, `read`, `aggregate` or `delete`, curre
 subject/actor, effective permissions as scopes, purpose, owner, resource identifiers and
 source/category/consent/privacy attributes. Missing or incorrectly bound decisions and unsupported
 obligations fail closed. History authorizes every returned item with its UUID: equal governance
-attributes do not imply equal item-specific AU decisions. Aggregate reads authorize actual governance
-groups in the exact union of requested windows, in the same PostgreSQL REPEATABLE READ snapshot used
-for calculation. An empty window list performs category authorization and returns no totals without
+attributes do not imply equal item-specific AU decisions. Aggregate reads also authorize every
+contributing item with its UUID, acquisition and governance attributes. They follow all internal
+pages of up to 500 items, without truncation or a governance-group shortcut. Totals inspect the exact
+union of requested windows; recent quantities inspect all candidates. Authorization and calculation
+use the same PostgreSQL REPEATABLE READ snapshot. Any item denial or decision failure rejects the
+whole result; PKB does not return a partial total or silently omit denied facts. An empty window list
+performs category authorization and returns no totals without
 reading records. Deletion uses one snapshot for lookup and mutation; an absent target is an authorized
 no-op and cannot delete a record created during authorization. The local Rego fixture is not a
 production policy.
+
+For this BWTS integration, AU requires `hydration:intake:read` for both raw reads and aggregates.
+`aggregate` remains a separate decision/audit operation; possession of the shared permission does
+not bypass item-specific policy. `hydration:summary:read` alone grants neither PKB operation.
+Existing BAS token grants are unchanged. BWTS still checks its public summary permission, so a
+summary-only browser or delegated token loses summary, statistics and quick-add access when BWTS
+uses PKB. The existing adapter maps that PKB denial to BWTS's bounded `503` storage-unavailable
+response. Its PostgreSQL backend retains its existing summary-only behavior. No fallback occurs.
+Per-item AU calls make aggregate authorization work proportional to the candidate record count.
 
 ## Operations
 

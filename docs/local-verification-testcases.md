@@ -128,8 +128,18 @@ Add concrete local service testcases here as features land:
 - Verify separate producer/user credentials, invalid/expired authority, unknown producer,
   subject substitution, AU denial/unavailability, incorrect action/user binding and unsupported
   obligations. Responses/logs must not disclose upstream details or credentials.
-- Verify mobile, ordinary API, browser-resource and delegated BWTS requests exercise the same
-  PKB record operations; aggregate authority never permits raw-history disclosure.
+- Verify equivalent permissions give mobile, ordinary API, browser-resource and other clients the
+  same PKB semantics. AU requires `hydration:intake:read` for both raw reads and `aggregate`.
+  Keep BAS grants unchanged: summary-only browser and delegated tokens fail PKB aggregate reads;
+  the existing BWTS adapter returns bounded `503` for summary/statistics/quick-add and `403` for
+  raw history. PostgreSQL retains its existing summary-only access. Create/delete remain separate.
+- Verify every contributing UUID receives an `aggregate` decision with its own acquisition,
+  consent and privacy attributes. Denial of item 501 with identical governance rejects the whole
+  totals/recent result before calculation. Follow every bounded authorization page; no group cap,
+  truncation or partial aggregate is allowed. AU failure also prevents quantity calculation.
+- On real PostgreSQL, verify authorization scans and calculation share a REPEATABLE READ snapshot
+  despite concurrent insertion/deletion; match owner, producer, active state, category, unit and
+  the exact window union. Empty totals inspect no facts; recent quantities inspect all candidates.
 - Round-trip exact mL quantities, original UUIDs/observed/recorded instants and source provenance.
 - On real PostgreSQL, verify equivalent/concurrent replay, conflicting reuse, source UUID
   collisions, retained deleted keys, repeated/foreign deletion, explicit bounded purge,

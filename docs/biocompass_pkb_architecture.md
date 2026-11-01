@@ -662,6 +662,14 @@ user authority for an explicitly approved backend/resource relation. PKB authent
 producer independently and enforces a bound AU decision before disclosure or mutation.
 Hydration calculations, client-facing APIs and BUPS day semantics stay with BWTS.
 
+In the current BWTS policy contract, raw reads and quantity aggregates share
+`hydration:intake:read`; `aggregate` remains a distinct AU operation. PKB authorizes every
+contributing UUID through complete bounded pages before calculation in the same database snapshot.
+Any item denial rejects the whole aggregate. BAS token grants remain unchanged, so summary-only
+authority cannot obtain PKB-backed summaries/statistics/quick-add values. The adapter's existing
+denial mapping returns a bounded BWTS `503`; PostgreSQL retains its current summary-only behavior.
+The [record contract](pkb_record_api.md#authentication-and-policy) records the exact boundary.
+
 The [central companion](https://github.com/Bio-Compass/bio-compass-architecture-docs/blob/codex/pkb-62-client-neutral-integration/docs/decisions/project-decision-log.md#decision-pkb62-client-neutral-records)
 remains proposed and pending publication. This branch's source does not prove deployment,
 accepted policy reconciliation or a completed production migration.

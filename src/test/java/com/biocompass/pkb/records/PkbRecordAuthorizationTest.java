@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
 class PkbRecordAuthorizationTest {
     private static final UUID USER = UUID.randomUUID();
     private static final PkbRecordAuthority AUTHORITY = new PkbRecordAuthority(USER, "verified-actor", "producer-service",
-            Set.of("hydration:read", "hydration:summary:read"), "self");
+            Set.of("hydration:intake:read"), "self");
     @Autowired private PkbRecordAuthorization authorization;
     @MockitoBean private PkbAuthorizationGateway gateway;
 
@@ -69,12 +69,14 @@ class PkbRecordAuthorizationTest {
                 "source_system", "producer-service", "entity_type", "nutrition_intake", "subtype", "water"));
     }
 
-    @Test void aggregateAuthorizationDoesNotPretendToReadAnIndividualItem() {
-        authorization.authorize(AUTHORITY, "aggregate", "nutrition_intake", "water", null, List.of(), List.of(), null);
+    @Test void aggregateAuthorizationKeepsOperationAndUsesActualItemWithReadAuthority() {
+        var id = UUID.randomUUID();
+        authorization.authorize(AUTHORITY, "aggregate", "nutrition_intake", "water", "device", List.of("health"), List.of(), id);
         var capture = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
         verify(gateway).decide(capture.capture());
         assertThat(capture.getValue().action()).isEqualTo("aggregate");
-        assertThat(capture.getValue().resource().identifiers()).isEmpty();
+        assertThat(capture.getValue().actor().scopes()).containsExactly("hydration:intake:read");
+        assertThat(capture.getValue().resource().identifiers()).containsExactlyEntriesOf(Map.of("item_id", id));
     }
 
     @Test void denialFailsClosed() {
