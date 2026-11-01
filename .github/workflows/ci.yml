@@ -53,6 +53,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: test
+    env:
+      # Explicit fixture capability for this disposable local service and its E2E client only.
+      PKB_E2E_SERVICE_NAME: pkb-e2e-client
+      PKB_E2E_SERVICE_TOKEN: pkb-e2e-directed-secret
+      SPRING_APPLICATION_JSON: >-
+        {"biocompass":{"pkb":{"auth":{"legacy":{"service-tokens":{"pkb-e2e-client":"pkb-e2e-directed-secret"}}}}}}
 
     steps:
       - name: Check out repository

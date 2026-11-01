@@ -17,6 +17,25 @@ class DeploymentWorkflowTest {
     private final Map<String, Object> deploy = workflow("deploy-environment.yml");
 
     @Test
+    void localE2eServiceAndClientHaveTheSameIsolatedWorkloadCapability() {
+        var environment = map(job(ci, "e2e-test"), "env");
+        Map<String, Object> configuration = new Yaml(new SafeConstructor(new LoaderOptions()))
+                .load(environment.get("SPRING_APPLICATION_JSON").toString());
+        var tokens = map(map(map(map(map(configuration, "biocompass"), "pkb"), "auth"), "legacy"), "service-tokens");
+        assertThat(tokens).containsExactlyEntriesOf(Map.of(environment.get("PKB_E2E_SERVICE_NAME").toString(),
+                environment.get("PKB_E2E_SERVICE_TOKEN")));
+        assertThat(map(ci, "env")).doesNotContainKey("SPRING_APPLICATION_JSON");
+        assertThat(map(job(ci, "e2e-testing"), "env"))
+                .doesNotContainKeys("SPRING_APPLICATION_JSON", "PKB_E2E_SERVICE_NAME", "PKB_E2E_SERVICE_TOKEN");
+        assertThat(steps(job(ci, "e2e-testing"))).anySatisfy(step -> {
+            assertThat(step).containsEntry("name", "Run Java E2E Job on the internal testing network");
+            assertThat(map(step, "env"))
+                    .containsEntry("PKB_E2E_SERVICE_NAME", "${{ secrets.PKB_E2E_SERVICE_NAME }}")
+                    .containsEntry("PKB_E2E_SERVICE_TOKEN", "${{ secrets.PKB_E2E_SERVICE_TOKEN }}");
+        });
+    }
+
+    @Test
     void requiresSuccessfulTestingDeploymentAndE2eBeforeProduction() {
         assertThat(job(ci, "deploy-testing").get("needs")).isEqualTo("publish-image");
         assertThat(job(ci, "e2e-testing").get("needs")).isEqualTo("deploy-testing");
