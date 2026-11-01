@@ -205,6 +205,22 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
   become testing defaults. Direct user-only requests fail even with a valid account, while valid
   service/user reads retain the same owner, missing-item and input-validation assertions.
 
+## PKB #74 — separate event DLT and replay
+
+- Run `./gradlew test --tests '*PkbDeadLetterDestinationResolverTest' --tests '*PkbKafkaEventRecoveryIntegrationTest' --tests '*PkbKafkaEventingIntegrationTest' --tests '*PkbEnrichmentConsumerConfigurationTest' --no-daemon` plus `./gradlew kafkaIngressTest --no-daemon`.
+- Routing unit coverage verifies default/overridden destinations, preserved partitions,
+  rejection of unknown source topics (including DLTs), and every configured/reserved topic collision.
+- Real Kafka/PostgreSQL recovery coverage activates command and enrichment listeners together.
+  Permanent event failures and exhausted transient failures reach only the event DLT;
+  malformed JSON preserves raw bytes, application and origin/exception headers, and partition progress.
+- Failed enrichment transactions leave neither a processed-event marker nor committed workflow effects.
+  Manual event replay succeeds after correction; duplicate replay commits no duplicate effects.
+  A failed replay returns to the event DLT and no event creates a command inbox row.
+- Command denial and approved command replay retain the command-only recovery path.
+- Startup topic verification checks event DLT/replay creation and matching partition counts.
+  Without an enrichment workflow, no event consumer starts; production provisioning and replay
+  credentials remain separate platform-owner work. See [recovery procedure](kafka-command-ingress.md#domain-event-failure-recovery-74).
+
 ## BAS introspection HTTP framing (#68)
 
 | ID | Verification | Expected result |

@@ -119,12 +119,17 @@ class PkbKafkaEventingIntegrationTest extends AbstractPostgresIntegrationTest {
         try (var adminClient = AdminClient.create(Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers()
         ))) {
+            var recoveryTopics = adminClient.describeTopics(java.util.List.of(
+                    "pkb.enrichment.completed", "pkb.events.dlt.v1", "pkb.events.replay.v1")).allTopicNames().get();
+            assertThat(recoveryTopics.values()).allSatisfy(topic -> assertThat(topic.partitions()).hasSize(3));
             assertThat(adminClient.listTopics().names().get())
                     .contains(
                             "pkb.item.created",
                             "pkb.artifact.created",
                             "pkb.enrichment.requested",
-                            "pkb.enrichment.completed"
+                            "pkb.enrichment.completed",
+                            "pkb.events.dlt.v1",
+                            "pkb.events.replay.v1"
                     );
         }
     }

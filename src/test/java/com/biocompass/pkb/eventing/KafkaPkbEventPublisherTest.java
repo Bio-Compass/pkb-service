@@ -35,7 +35,7 @@ class KafkaPkbEventPublisherTest {
 
         new KafkaPkbEventPublisher(
                 kafkaTemplate,
-                new PkbEventingProperties(false, null, 50, "pkb-enrichment", 3, Duration.ofSeconds(5))
+                new PkbEventingProperties(false, null, 50, "pkb-enrichment", 3, Duration.ofSeconds(5), null, null)
         ).publish(event);
 
         var payloadCaptor = ArgumentCaptor.forClass(Object.class);
@@ -55,7 +55,7 @@ class KafkaPkbEventPublisherTest {
 
         var publisher = new KafkaPkbEventPublisher(
                 kafkaTemplate,
-                new PkbEventingProperties(false, null, 50, "pkb-enrichment", 3, Duration.ofMillis(1))
+                new PkbEventingProperties(false, null, 50, "pkb-enrichment", 3, Duration.ofMillis(1), null, null)
         );
 
         assertThatThrownBy(() -> publisher.publish(event))
