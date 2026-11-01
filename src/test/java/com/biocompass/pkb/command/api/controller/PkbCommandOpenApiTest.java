@@ -11,6 +11,10 @@ import com.biocompass.pkb.command.api.service.PkbCommandIngressService;
 import com.biocompass.pkb.command.api.web.PkbCommandHeaderArgumentResolver;
 import com.biocompass.pkb.command.api.web.PkbCommandWebConfig;
 import com.biocompass.pkb.config.OpenApiConfig;
+import com.biocompass.pkb.records.PkbRecordController;
+import com.biocompass.pkb.records.PkbRecordAuthorityClient;
+import com.biocompass.pkb.records.PkbRecordAuthorization;
+import com.biocompass.pkb.records.persistence.PkbSourceRecordStore;
 import com.biocompass.pkb.config.SecurityConfig;
 import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.Test;
@@ -53,6 +57,10 @@ class PkbCommandOpenApiTest {
     @MockitoBean
     private PkbCommandIngressService commandIngressService;
 
+    @MockitoBean private PkbRecordAuthorityClient recordAuthority;
+    @MockitoBean private PkbRecordAuthorization recordAuthorization;
+    @MockitoBean private PkbSourceRecordStore sourceRecordStore;
+
     @MockitoBean
     private PkbItemCommandMapper itemCommandMapper;
 
@@ -85,6 +93,26 @@ class PkbCommandOpenApiTest {
         }
     }
 
+    @Test
+    void documentsWorkloadAndUserAuthorityAsJointRequirementsForEachPlane() throws Exception {
+        var response = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var api = objectMapper.readTree(response);
+        var legacy = api.path("security");
+        assertThat(legacy.size()).isEqualTo(1);
+        assertThat(legacy.get(0).has("bearerAuth")).isTrue();
+        assertThat(legacy.get(0).has("pkbServiceName")).isTrue();
+        assertThat(legacy.get(0).has("pkbServiceToken")).isTrue();
+        assertThat(api.path("components").path("securitySchemes").path("pkbServiceToken").path("name").asText())
+                .isEqualTo("X-BioCompass-Service-Token");
+        var records = api.path("paths").path("/api/v1/internal/items").path("post").path("security");
+        assertThat(records.size()).isEqualTo(1);
+        assertThat(records.get(0).has("recordProducerBearer")).isTrue();
+        assertThat(records.get(0).has("pkbServiceName")).isTrue();
+        assertThat(records.get(0).has("recordUserAuthority")).isTrue();
+        assertThat(records.get(0).has("pkbServiceToken")).isFalse();
+    }
+
     private static void assertHeader(JsonNode parameters, String name, boolean required) {
         var header = StreamSupport.stream(parameters.spliterator(), false)
                 .filter(parameter -> name.equals(parameter.path("name").asText()))
@@ -109,6 +137,7 @@ class PkbCommandOpenApiTest {
     @Import({
             SecurityConfig.class,
             OpenApiConfig.class,
+            PkbRecordController.class,
             PkbCommandHeaderArgumentResolver.class,
             PkbCommandWebConfig.class,
             PkbItemCommandController.class,

@@ -14,9 +14,14 @@ a transactional outbox or equivalent before publication is enabled.
 
 ## Authorization Contract
 
+HTTP callers must satisfy [the service-only access contract](pkb-service-access.md) before
+user-token introspection, AU evaluation or publication. The verified incoming caller is carried
+as `producerService`; the PKB broker identity remains the actual Kafka publisher. The former
+`PKB_KAFKA_PRODUCER_SERVICE` setting does not choose or override this HTTP caller identity.
+
 The Kafka envelope contains only the safe context needed to re-authorize:
 
-- configured producer service name;
+- workload-authenticated HTTP caller service name;
 - actor ID and user ID;
 - staff, role, and scope attributes returned by authentication;
 - purpose of use;

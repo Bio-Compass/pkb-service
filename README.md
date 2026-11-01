@@ -133,3 +133,7 @@ Local BWTS-to-PKB verification: build `bootJar`, then run
 `--pkb-jar`, `--evidence-dir` and disposable `PKB_TEST_DATABASE_URL`,
 `PKB_TEST_DATABASE_USER`, `PKB_TEST_DATABASE_PASSWORD`. The harness uses real PKB/PostgreSQL
 and explicit BAS/BUPS/AU contract doubles.
+
+Legacy `/api/pkb/**` fact APIs require an explicitly allowed service credential **and** BAS user
+bearer authority. A user or staff token alone cannot call PKB. See [Service-only access](docs/pkb-service-access.md)
+for configuration, compatibility and the distinct source-record authentication contract.

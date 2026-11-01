@@ -155,7 +155,10 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh \
 The list includes `pkb.item.created`, `pkb.artifact.created`,
 `pkb.enrichment.requested`, and `pkb.enrichment.completed`.
 
-All non-actuator endpoints require a Bearer token that can be introspected by
+All fact endpoints require independent workload authentication and user authority.
+The legacy `/api/pkb/**` contract is described in [Service-only PKB access](pkb-service-access.md).
+Configure an explicitly approved legacy caller before using the examples below; the default
+empty allowlist rejects every legacy caller. The user Bearer token is introspected by
 the BioCompass auth service. The local profile sends tokens to
 `PKB_AUTH_INTROSPECTION_URL` with `Authorization: Bearer
 ${PKB_AUTH_INTROSPECTION_SERVICE_TOKEN}` and `X-BioCompass-Service:
@@ -166,6 +169,8 @@ then obtain an access token from the auth service and export it:
 ```sh
 export TOKEN='<BioCompass access token>'
 export USER_ID='<BioCompass user UUID>'
+export PKB_CALLER_NAME='<approved service identity>'
+# Supply PKB_CALLER_TOKEN securely from the directed caller credential configuration.
 ```
 
 Verify a local PKB query request after seeding `pkb_item` rows for the user:
@@ -173,6 +178,8 @@ Verify a local PKB query request after seeding `pkb_item` rows for the user:
 ```sh
 curl -fsS \
   -H "Authorization: Bearer ${TOKEN}" \
+  -H "X-BioCompass-Service: ${PKB_CALLER_NAME}" \
+  -H "X-BioCompass-Service-Token: ${PKB_CALLER_TOKEN}" \
   "http://localhost:8080/api/pkb/items?userId=${USER_ID}"
 ```
 
@@ -187,6 +194,8 @@ COMMAND_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 
 curl -fsS -X POST \
   -H "Authorization: Bearer ${TOKEN}" \
+  -H "X-BioCompass-Service: ${PKB_CALLER_NAME}" \
+  -H "X-BioCompass-Service-Token: ${PKB_CALLER_TOKEN}" \
   -H "X-Command-Id: ${COMMAND_ID}" \
   -H "Content-Type: application/json" \
   "http://localhost:8080/api/pkb/commands/items?userId=${USER_ID}" \
@@ -251,6 +260,7 @@ When a feature affects startup, persistence, security, or HTTP behavior, keep th
 ./gradlew e2eTest --no-daemon
 ```
 
+The E2E service must explicitly allow the test workload described in [Service-only PKB access](pkb-service-access.md).
 The E2E suite seeds PostgreSQL, starts a temporary BioCompass auth introspection stub on the local-profile default port, and drives the service through HTTP with opaque Bearer tokens.
 
 ## Stop Infrastructure

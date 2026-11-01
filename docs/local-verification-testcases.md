@@ -175,3 +175,21 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
 - `RunClusterE2eTest`: native Kubernetes watches replace status polling; success waits for `Complete` after `SuccessCriteriaMet` within one deadline, while failed or unexpected conditions and watch errors fail closed. Job timeout, missing/failed/skipped results and credential API errors also fail closed; foreground cleanup is attempted after all created-Job paths. The manifest has no API-token mount, public access or plaintext credentials.
 - CI `verify-testing=true`: builds the test-runner from the selected source revision, runs all shared API checks over native service DNS, retrieves JUnit XML/log artifacts, and deletes the Job and its owned Secret. Application image publication/rollout and production promotion remain skipped.
 - After verification, list `jobs,pods,secrets` in `testing` and confirm no resources for the CI run remain. Do not display Secret values.
+## PKB #62 — service-only legacy API
+
+- Verify user and staff bearer tokens alone return 401 on every legacy query/command path,
+  including malformed bodies, before BAS introspection, AU, storage or Kafka submission.
+- Verify missing, wrong, unknown, duplicate or cross-purpose workload credentials fail closed;
+  an empty caller map denies every caller. Invalid/shared configuration must fail without secret values.
+- With both identities, retain existing owner/staff read checks, inactive-user rejection, AU
+  denial/binding/obligation handling and broker-acknowledged 202 semantics.
+- Verify AU and the committed Kafka inbox producer equal the authenticated incoming service,
+  never an arbitrary header or the old producer configuration. Credentials stay out of events/logs.
+- Verify OpenAPI requires workload plus user authority together, separately for legacy and source-record APIs.
+- Run full verification and `manual_tests/verify_bwts_pkb.py`; the existing BWTS adapter requires
+  no legacy capability and remains isolated. See [Service-only PKB access](pkb-service-access.md).
+
+- Shared deployed Java E2E: explicit service name/token settings are required before BAS login or
+  Job creation; the Job receives them only through its temporary Secret. Local defaults must not
+  become testing defaults. Direct user-only requests fail even with a valid account, while valid
+  service/user reads retain the same owner, missing-item and input-validation assertions.

@@ -248,6 +248,8 @@ jobs:
         env:
           PKB_E2E_USERNAME: ${{ secrets.PKB_E2E_USERNAME }}
           PKB_E2E_PASSWORD: ${{ secrets.PKB_E2E_PASSWORD }}
+          PKB_E2E_SERVICE_NAME: ${{ secrets.PKB_E2E_SERVICE_NAME }}
+          PKB_E2E_SERVICE_TOKEN: ${{ secrets.PKB_E2E_SERVICE_TOKEN }}
           PKB_E2E_NAMESPACE: testing
           PKB_E2E_RUNNER_IMAGE: ghcr.io/bio-compass/pkb-service-e2e@${{ steps.runner-image.outputs.digest }}
         run: java src/ci/java/com/biocompass/pkb/ci/RunClusterE2e.java

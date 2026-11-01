@@ -1,6 +1,7 @@
 package com.biocompass.pkb.ci;
 
 import java.io.ByteArrayInputStream;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,6 +13,10 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import org.w3c.dom.Node;
 
 /** Runs a bounded testing-only Job; the test pod never receives Kubernetes credentials. */
 public final class RunClusterE2e {
@@ -29,6 +34,8 @@ public final class RunClusterE2e {
         var manifest = render(Files.readString(template), environment);
         var username = required(environment, "PKB_E2E_USERNAME");
         var password = required(environment, "PKB_E2E_PASSWORD");
+        var serviceName = required(environment, "PKB_E2E_SERVICE_NAME");
+        var serviceToken = required(environment, "PKB_E2E_SERVICE_TOKEN");
         Files.createDirectories(reports);
         Files.writeString(reports.resolve("job.yaml"), manifest);
         Exception failure = null;
@@ -46,8 +53,8 @@ public final class RunClusterE2e {
             var secret = """
                     {"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s-credentials","namespace":"testing",
                     "ownerReferences":[{"apiVersion":"batch/v1","kind":"Job","name":"%s","uid":"%s","blockOwnerDeletion":true}]},
-                    "type":"Opaque","data":{"username":"%s","password":"%s"}}
-                    """.formatted(job, job, uid, encode(username), encode(password));
+                    "type":"Opaque","data":{"username":"%s","password":"%s","service-name":"%s","service-token":"%s"}}
+                    """.formatted(job, job, uid, encode(username), encode(password), encode(serviceName), encode(serviceToken));
             require(commands.run(kubectl("create", "-f", "-"), secret), "Create temporary E2E credentials");
             var image = require(commands.run(kubectl("get", "deployment", "pkb-service", "-o",
                     "jsonpath={.spec.template.spec.containers[?(@.name==\"pkb-service\")].image}"), ""),
@@ -74,9 +81,9 @@ public final class RunClusterE2e {
                 try {
                     var logs = commands.run(kubectl("logs", "job/" + job, "--container=tests",
                             "--pod-running-timeout=5s"), "");
-                    var safeLogs = logs.output().replace(password, "[REDACTED]").replace(username, "[REDACTED]");
+                    var safeLogs = safeJobLogs(logs.output(), username, password, serviceName, serviceToken);
                     Files.writeString(reports.resolve("job.log"), safeLogs);
-                    var count = collectReports(logs.output(), reports, complete);
+                    var count = collectReports(logs.output(), reports, complete, username, password, serviceName, serviceToken);
                     if (complete && (logs.exitCode() != 0 || count == 0)) {
                         throw new IllegalStateException("Testing Job did not return JUnit reports");
                     }
@@ -137,7 +144,7 @@ public final class RunClusterE2e {
         return "pkb-e2e-" + run + "-" + attempt;
     }
 
-    static int collectReports(String logs, Path directory, boolean requireSuccess) throws Exception {
+    static int collectReports(String logs, Path directory, boolean requireSuccess, String... credentials) throws Exception {
         String filename = null;
         var encoded = new StringBuilder();
         int reports = 0;
@@ -173,7 +180,17 @@ public final class RunClusterE2e {
                         }
                     }
                 }
-                Files.write(directory.resolve(filename), bytes);
+                // Coalesce adjacent text/CDATA before redacting values split by XML serialization.
+                var document = root.getOwnerDocument();
+                document.getDomConfig().setParameter("cdata-sections", false);
+                document.normalizeDocument();
+                redactNode(root, credentials);
+                var transformerFactory = TransformerFactory.newInstance();
+                transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+                transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+                var output = new StringWriter();
+                transformerFactory.newTransformer().transform(new DOMSource(root), new StreamResult(output));
+                Files.writeString(directory.resolve(filename), output.toString(), StandardCharsets.UTF_8);
                 reports++;
                 filename = null;
             } else if (filename != null) {
@@ -187,6 +204,43 @@ public final class RunClusterE2e {
             throw new IllegalStateException("Incomplete or empty JUnit results");
         }
         return reports;
+    }
+
+    private static String safeJobLogs(String logs, String... credentials) {
+        // Decoded reports are saved separately; never duplicate their encoded contents in logs.
+        var output = new StringBuilder();
+        boolean report = false;
+        var parts = logs.splitWithDelimiters("\\R", -1);
+        for (int i = 0; i < parts.length; i += 2) {
+            var line = parts[i];
+            if (line.startsWith(BEGIN)) report = true;
+            else if (line.equals(END)) report = false;
+            else if (!report) {
+                output.append(line);
+                if (i + 1 < parts.length) output.append(parts[i + 1]);
+            }
+        }
+        return redact(output.toString(), credentials);
+    }
+
+    private static void redactNode(Node node, String... credentials) {
+        if (node.getNodeValue() != null) node.setNodeValue(redact(node.getNodeValue(), credentials));
+        var attributes = node.getAttributes();
+        if (attributes != null) {
+            for (int i = 0; i < attributes.getLength(); i++) redactNode(attributes.item(i), credentials);
+        }
+        for (var child = node.getFirstChild(); child != null; child = child.getNextSibling()) {
+            redactNode(child, credentials);
+        }
+    }
+
+    private static String redact(String value, String... credentials) {
+        var ordered = java.util.Arrays.stream(credentials).filter(credential -> !credential.isEmpty())
+                .sorted(java.util.Comparator.comparingInt(String::length).reversed()).toList();
+        for (var credential : ordered) {
+            value = value.replace(credential, "[REDACTED]").replace(encode(credential), "[REDACTED]");
+        }
+        return value;
     }
 
     private static List<String> kubectl(String... arguments) {

@@ -81,6 +81,7 @@ class PkbRecordApiTest {
 
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) {
         registry.add("biocompass.pkb.records.service-tokens.producer-service", () -> WORKLOAD_TOKEN);
+        registry.add("biocompass.pkb.auth.legacy.service-tokens.producer-service", () -> "fixture-legacy-plane-only");
         registry.add("biocompass.pkb.records.authority-service-token", () -> PKB_BAS_TOKEN);
         registry.add("biocompass.pkb.records.authority-url", () -> "http://127.0.0.1:" + BAS.getAddress().getPort()
                 + "/api/v1/internal/auth/backend-authority/verify/");
@@ -129,6 +130,14 @@ class PkbRecordApiTest {
     @Test void userAuthorityWithoutWorkloadAuthenticationIsInsufficient() throws Exception {
         mvc.perform(post(BASE).header("X-BioCompass-User-Token", "mobile-user-token")
                         .contentType(MediaType.APPLICATION_JSON).content(validCreate()))
+                .andExpect(status().isUnauthorized());
+        assertThat(BAS_CALLS.get()).isZero();
+        verifyNoInteractions(store, gateway);
+    }
+
+    @Test void legacyCredentialDoesNotAuthenticateOnRecordPlane() throws Exception {
+        mvc.perform(post(BASE).header("Authorization", "Bearer fixture-legacy-plane-only")
+                        .header("X-BioCompass-Service", PRODUCER).header("X-BioCompass-User-Token", "user-token"))
                 .andExpect(status().isUnauthorized());
         assertThat(BAS_CALLS.get()).isZero();
         verifyNoInteractions(store, gateway);

@@ -18,6 +18,7 @@ import com.biocompass.pkb.authorization.PkbAuthorizationGateway;
 import com.biocompass.pkb.authorization.PkbAuthorizationRequest;
 import com.biocompass.pkb.authorization.PkbAuthorizationUnavailableException;
 import com.biocompass.pkb.authorization.PkbWriteAuthorizationService;
+import com.biocompass.pkb.auth.PkbServiceCallerResolver;
 import com.biocompass.pkb.command.api.controller.PkbItemCommandController;
 import com.biocompass.pkb.command.api.service.PkbCommandIngressService;
 import com.biocompass.pkb.command.PkbCommandValidator;
@@ -32,6 +33,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -50,6 +53,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 @WebMvcTest(
         controllers = PkbItemCommandController.class,
+        properties = "biocompass.pkb.auth.legacy.service-tokens.approved-client=fixture-legacy-only",
         includeFilters = @ComponentScan.Filter(type = FilterType.REGEX, pattern = ".*MapperImpl"),
         excludeFilters = @ComponentScan.Filter(
                 type = FilterType.REGEX,
@@ -58,6 +62,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 )
 @Import({
         SecurityConfig.class,
+        PkbServiceCallerResolver.class,
         BioCompassActorAuthenticationResolver.class,
         PkbWriteAuthorizationService.class,
         PkbCommandValidator.class,
@@ -101,12 +106,43 @@ class PkbCommandAuthorizationWebTest {
             default -> throw new BadOpaqueTokenException("Inactive BioCompass access token");
         });
         when(kafkaProperties.commandIngressEnabled()).thenReturn(true);
-        when(kafkaProperties.producerService()).thenReturn("pkb-service");
         when(authorizationGateway.decide(any())).thenAnswer(invocation -> {
             PkbAuthorizationRequest request = invocation.getArgument(0);
             boolean ownerWrite = request.actor().userId().equals(request.resource().targetUserId());
             return decision(ownerWrite, request.resource().targetUserId());
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/pkb/items", "/api/pkb/commands/items", "/api/pkb/commands/relationships",
+            "/api/pkb/commands/artifacts", "/api/pkb/commands/items/11111111-1111-1111-1111-111111111111/supersessions",
+            "/api/pkb/commands/artifacts/11111111-1111-1111-1111-111111111111/associations", "/api/future"})
+    void userTokenAloneNeverReachesIntrospectionOrApplication(String path) throws Exception {
+        mockMvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                        .contentType(MediaType.APPLICATION_JSON).content("not json"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("unauthorized_service"));
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"wrong", "valid-user", "fixture-record-only"})
+    void wrongServiceCredentialNeverReachesIntrospection(String token) throws Exception {
+        mockMvc.perform(post("/api/pkb/commands/items")
+                        .header("X-BioCompass-Service", "approved-client")
+                        .header("X-BioCompass-Service-Token", token)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-user"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test
+    void forgedServiceNameNeverReachesIntrospection() throws Exception {
+        mockMvc.perform(post("/api/pkb/commands/items")
+                        .header("X-BioCompass-Service", "other-client")
+                        .header("X-BioCompass-Service-Token", "fixture-legacy-only")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-user"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
     }
 
     @Test
@@ -129,7 +165,7 @@ class PkbCommandAuthorizationWebTest {
 
         var authorizationRequest = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
         verify(authorizationGateway).decide(authorizationRequest.capture());
-        assertThat(authorizationRequest.getValue().producerService()).isEqualTo("pkb-service");
+        assertThat(authorizationRequest.getValue().producerService()).isEqualTo("approved-client");
         assertThat(authorizationRequest.getValue().actor().userId()).isEqualTo(USER_ID);
         assertThat(authorizationRequest.getValue().resource().targetUserId()).isEqualTo(USER_ID);
 
@@ -183,6 +219,8 @@ class PkbCommandAuthorizationWebTest {
 
     private static MockHttpServletRequestBuilder commandRequest(UUID userId) {
         return post("/api/pkb/commands/items")
+                .header("X-BioCompass-Service", "approved-client")
+                .header("X-BioCompass-Service-Token", "fixture-legacy-only")
                 .queryParam("userId", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(REQUEST_BODY);
