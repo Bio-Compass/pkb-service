@@ -1,0 +1,61 @@
+diff --git a/VERSION b/VERSION
+--- a/VERSION
++++ b/VERSION
+@@ -1 +1 @@
+-1.14.3
++1.15.0
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # BioCompass Architecture Documentation
+
+-**Current documentation release:** 1.14.3
++**Current documentation release:** 1.15.0
+ **Repository role:** project-wide architecture, decisions, ownership, cross-service standards, and coordination indexes
+ **Implementation state:** documentation only; this repository does not prove service deployment or runtime behaviour
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,4 +1,9 @@
+ # Changelog
++
++## 1.15.0 - 2026-11-01
++
++- Propose separated PKB command and domain-event dead-letter/replay paths for PKB #74; link the owning service's recovery contract.
++- Preserve existing accepted authority and platform ownership decisions. Production topic provisioning, ACLs and deployment require separate review and approval; no runtime claim is made.
+
+ ## 1.14.3 - 2026-10-31
+
+diff --git a/docs/decisions/project-decision-log.md b/docs/decisions/project-decision-log.md
+--- a/docs/decisions/project-decision-log.md
++++ b/docs/decisions/project-decision-log.md
+@@ -1580,3 +1580,15 @@
+ 5. **Compatibility and rollout.** Existing browser clients and reusable manual validation assets must request explicit permissions before the stricter BAS is promoted. Any client relying on omission or silent narrowing will receive an error; this is an intentional contract break. Correct BMA documentation/comments separately without deleting its defence-in-depth checks of the permissions actually granted.
+
+ **Consequences:** BAS owns the issuance/API/OpenAPI/test changes; the canonical browser-resource authority record §10.4 is aligned with this amendment. Consumer services retain endpoint-specific authorisation and independent introspection checks. This documentation change authorises no remote push, shared-environment test, deployment, or infrastructure change.
++
++
++<a id="decision-pkb74-event-recovery"></a>
++## 2026-11-01 — Separate PKB command and domain-event recovery
++
++**Status:** Proposed for [PKB #74](https://github.com/Bio-Compass/pkb-service/issues/74); requires architecture review. Extends the existing async failure-observability and idempotency standards without amending accepted BAS authority or platform ownership decisions.
++
++**Proposal:** PKB command ingress and post-commit domain events have separate dead-letter and restricted operator replay paths. An enrichment event must never be recovered through the command-processing pipeline. Replay retains the event identity and passes through the existing transactional workflow/deduplication boundary. There is no automatic dead-letter replay loop, and the runtime producer identity cannot publish to operator replay topics.
++
++PKB owns payloads, failure routing, consumer behavior and the [service-local recovery contract](https://github.com/Bio-Compass/pkb-service/blob/codex/pkb-74-domain-event-dlt/docs/kafka-command-ingress.md#domain-event-failure-recovery-74). The Helm/platform owner owns production topic provisioning, matching partitions, replication/retention and directed broker credentials/ACLs. Review of this proposal or service source does not authorize deployment or establish runtime readiness.
++
++**Evidence and non-goals:** The implementation is tracked by PKB #74. This proposal makes no completed-test or deployment claim. It does not add an enrichment workflow, change authorization ownership, resolve outbox ordering, or authorize automatic migration of historical mixed DLT records.
+diff --git a/docs/architecture/pkb-service.md b/docs/architecture/pkb-service.md
+--- a/docs/architecture/pkb-service.md
++++ b/docs/architecture/pkb-service.md
+@@ -52,3 +52,8 @@
+ | PKB-specific deployment entrypoint and platform references | [VM-hosted Kubernetes deployment guide](https://github.com/Bio-Compass/pkb-service/blob/main/docs/kubernetes-vm-deployment.md); shared machinery remains owned by [bio-compass-helm](https://github.com/Bio-Compass/bio-compass-helm) |
+
+ Service-local API/OpenAPI contracts, migrations, event schemas, configuration, tests, and implementation tasks stay in `pkb-service`. Link to those sources when adding cross-service documentation rather than copying their mutable contents here.
++
++
++## Proposed recovery-path correction
++
++[PKB #74](https://github.com/Bio-Compass/pkb-service/issues/74) tracks separated command and enrichment-event dead-letter/replay paths. The [proposed decision](../decisions/project-decision-log.md#decision-pkb74-event-recovery) preserves platform provisioning ownership and links service-owned recovery details. It is not an accepted decision or deployment evidence; the historical source inspection above remains dated evidence.

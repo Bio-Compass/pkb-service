@@ -11,7 +11,9 @@ public record PkbEventingProperties(
         int relayBatchSize,
         String consumerName,
         int topicPartitions,
-        Duration publishTimeout
+        Duration publishTimeout,
+        String deadLetterTopic,
+        String replayTopic
 ) {
 
     public PkbEventingProperties {
@@ -22,6 +24,10 @@ public record PkbEventingProperties(
         publishTimeout = publishTimeout == null || publishTimeout.isZero() || publishTimeout.isNegative()
                 ? Duration.ofSeconds(5)
                 : publishTimeout;
+        deadLetterTopic = deadLetterTopic == null || deadLetterTopic.isBlank()
+                ? "pkb.events.dlt.v1" : deadLetterTopic.strip();
+        replayTopic = replayTopic == null || replayTopic.isBlank()
+                ? "pkb.events.replay.v1" : replayTopic.strip();
     }
 
 }

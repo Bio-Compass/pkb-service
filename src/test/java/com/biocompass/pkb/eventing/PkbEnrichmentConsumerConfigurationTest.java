@@ -59,7 +59,7 @@ class PkbEnrichmentConsumerConfigurationTest {
 
         @Bean
         PkbEventingProperties eventingProperties() {
-            return new PkbEventingProperties(false, Duration.ofSeconds(1), 50, "pkb-enrichment", 3, Duration.ofSeconds(5));
+            return new PkbEventingProperties(false, Duration.ofSeconds(1), 50, "pkb-enrichment", 3, Duration.ofSeconds(5), null, null);
         }
     }
 }

@@ -498,8 +498,9 @@ domain events. HTTP command endpoints return `202 Accepted` only after the
 ingress record is broker-acknowledged. The consumer independently obtains a
 fresh AU decision before persistence, uses a transactional inbox for exact
 idempotency, and routes permanent or exhausted failures to a durable DLT.
-Post-commit domain events require a transactional outbox and use different
-topics. See [Kafka Command Ingress](kafka-command-ingress.md).
+Post-commit domain events use a transactional outbox and different topics,
+including dedicated event DLT and operator-only replay topics. Failed enrichment
+events must never enter command replay. See [Kafka Command Ingress](kafka-command-ingress.md).
 
 ---
 
