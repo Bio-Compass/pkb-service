@@ -27,6 +27,7 @@ jobs:
         with:
           environment: ${{ inputs.environment }}
           image-ref: ${{ inputs.image-ref }}
+          helm-repository: ${{ vars.PKB_SERVICE_HELM_VALUES_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
           helm-revision: ${{ inputs.helm-revision }}
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
           helm-ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}
@@ -110,6 +111,7 @@ jobs:
         with:
           environment: ${{ inputs.environment }}
           image-ref: ${{ inputs.image-ref }}
+          helm-repository: ${{ vars.PKB_SERVICE_HELM_VALUES_REPOSITORY || 'Bio-Compass/bio-compass-helm' }}
           helm-revision: ${{ inputs.helm-revision }}
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
           helm-ssh-key: ${{ secrets.BIO_COMPASS_HELM_VALUES_SSH_KEY }}

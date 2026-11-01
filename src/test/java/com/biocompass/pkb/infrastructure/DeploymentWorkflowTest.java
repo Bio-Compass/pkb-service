@@ -105,16 +105,39 @@ class DeploymentWorkflowTest {
     }
 
     @Test
+    void passesTheConfiguredHelmRepositoryIntoTheCompositeAction() {
+        var action = yaml(Path.of(".github/actions/prepare-deploy/action.yml"));
+        assertThat(map(map(action, "inputs"), "helm-repository")).containsEntry("required", true);
+        assertThat(steps(map(action, "runs"))).anySatisfy(step -> {
+            assertThat(step).containsEntry("uses", "actions/checkout@v6");
+            assertThat(map(step, "with"))
+                    .containsEntry("repository", "${{ inputs.helm-repository }}")
+                    .containsEntry("ref", "${{ inputs.helm-revision }}");
+        });
+        var repository = map(ci, "env").get("HELM_VALUES_REPOSITORY");
+        for (var phase : List.of("plan", "deploy")) {
+            assertThat(steps(job(deploy, phase))).anySatisfy(step -> {
+                assertThat(step).containsEntry("uses", "./.github/actions/prepare-deploy");
+                assertThat(map(step, "with")).containsEntry("helm-repository", repository);
+            });
+        }
+    }
+
+    @Test
     void neverCancelsAnInFlightMainPromotion() {
         assertThat(map(ci, "concurrency").get("cancel-in-progress"))
                 .isEqualTo("${{ github.ref != 'refs/heads/main' }}");
     }
 
     private static Map<String, Object> workflow(String file) {
-        try (var input = Files.newBufferedReader(Path.of(".github/workflows", file))) {
+        return yaml(Path.of(".github/workflows", file));
+    }
+
+    private static Map<String, Object> yaml(Path file) {
+        try (var input = Files.newBufferedReader(file)) {
             return new Yaml(new SafeConstructor(new LoaderOptions())).load(input);
         } catch (IOException exception) {
-            throw new IllegalStateException("Cannot read workflow " + file, exception);
+            throw new IllegalStateException("Cannot read CI metadata " + file, exception);
         }
     }
 
