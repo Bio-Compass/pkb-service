@@ -23,17 +23,22 @@ from datetime import UTC, datetime, timedelta
 
 PRODUCER = "biocompass-watertracker-service"
 PERMISSIONS = {"create": "hydration:intake:create", "read": "hydration:intake:read",
-               "aggregate": "hydration:summary:read", "delete": "hydration:intake:delete"}
+               "aggregate": "hydration:intake:read", "delete": "hydration:intake:delete"}
 USER, OTHER = str(uuid4()), str(uuid4())
 TOKENS = {name: USER for name in ["mobile", "desktop-api", "browser", "telegram", "summary-only"]}
 TOKENS["other-user"] = OTHER
 AU_DOWN = False
+AGGREGATE_DENIED_ITEMS = set()
 
 
 def permissions(token):
     if token == "summary-only":
-        return [PERMISSIONS["aggregate"]]
-    return [value for key, value in PERMISSIONS.items() if key != "read" or token != "telegram"]
+        return ["hydration:summary:read"]
+    # Token grants are independent of the AU operation-to-capability mapping.
+    grants = ["hydration:intake:create", "hydration:intake:delete", "hydration:summary:read"]
+    if token != "telegram":
+        grants.append("hydration:intake:read")
+    return grants
 
 
 class Contracts(BaseHTTPRequestHandler):
@@ -93,7 +98,9 @@ class Contracts(BaseHTTPRequestHandler):
             allowed = (request["producer_service"] == PRODUCER
                        and actor["user_id"] == resource["target_user_id"]
                        and PERMISSIONS.get(request["action"]) in actor["scopes"]
-                       and "restricted" not in resource["privacy_scope"])
+                       and "restricted" not in resource["privacy_scope"]
+                       and not (request["action"] == "aggregate"
+                                and resource["identifiers"].get("item_id") in AGGREGATE_DENIED_ITEMS))
             return self.reply(200, {"result": {"allowed": allowed, "decision_reference": "fixture-au-decision",
                 "action": request["action"], "target_user_id": resource["target_user_id"], "obligations": {}}})
         self.reply(404, {})
@@ -140,14 +147,30 @@ async def verify(bwts_checkout, base, contracts):
                 assert replay == original, "Replay must preserve UUID and source time across clients"
             await call("POST", "/intake", expected=409, json={**payload, "value_ml": 300})
             local_date = datetime.fromisoformat(observed).astimezone(__import__("zoneinfo").ZoneInfo("Europe/Amsterdam")).date().isoformat()
-            for token in ["mobile", "desktop-api", "browser", "telegram"]:
+            for token in ["mobile", "desktop-api", "browser"]:
                 summary = await call("GET", "/today", token=token, params={"date": local_date})
                 assert summary["actual_ml"] == 250 and summary["effective_time_zone"] == "Europe/Amsterdam"
             history = await call("GET", "/intakes", params={"date": local_date})
             assert [row["intake_id"] for row in history["intakes"]] == [original["intake_id"]]
             await call("GET", "/intakes", token="telegram", expected=403, params={"date": local_date})
-            quick = await call("GET", "/quick-add-amounts", token="telegram")
+            quick = await call("GET", "/quick-add-amounts", token="browser")
             assert quick["quick_add_amounts_ml"][0] == 250
+            for token in ["telegram", "summary-only"]:
+                for path, params in [("/today", {"date": local_date}),
+                                     ("/statistics", {"period_days": 7}), ("/quick-add-amounts", {})]:
+                    failure = await call("GET", path, token=token, expected=503, params=params)
+                    assert failure == {"detail": "Hydration storage is unavailable."}
+            # A single denied UUID rejects the whole aggregate, even with identical governance.
+            additional = await call("POST", "/intake", expected=201,
+                                    json={"value_ml": 50, "observed_at": observed})
+            AGGREGATE_DENIED_ITEMS.add(additional["intake_id"])
+            try:
+                await call("GET", "/today", expected=503, params={"date": local_date})
+                await call("GET", "/quick-add-amounts", expected=503)
+            finally:
+                AGGREGATE_DENIED_ITEMS.clear()
+            assert (await call("GET", "/today", params={"date": local_date}))["actual_ml"] == 300
+            await call("DELETE", "/intake/" + additional["intake_id"], expected=204)
             for period in [7, 30]:
                 statistics = await call("GET", "/statistics", token="browser", params={"period_days": period})
                 assert len(statistics["days"]) == period
@@ -169,6 +192,10 @@ async def verify(bwts_checkout, base, contracts):
                 headers = {"Authorization": "Bearer fixture-bwts-to-pkb", "X-BioCompass-Service": PRODUCER,
                            "X-BioCompass-User-Token": "summary-only"}
                 assert (await pkb.get("/api/v1/internal/items/" + original["intake_id"], headers=headers)).status_code == 403
+                assert (await pkb.post("/api/v1/internal/items/quantity-totals", headers=headers, json={
+                    "entity_type": "nutrition_intake", "subtype": "water", "unit": "mL", "windows": []})).status_code == 403
+                assert (await pkb.get("/api/v1/internal/items/recent-quantities", headers=headers, params={
+                    "entity_type": "nutrition_intake", "subtype": "water", "unit": "mL"})).status_code == 403
                 assert (await pkb.get("/api/v1/internal/items", headers=headers, params={"user_id": OTHER})).status_code == 422
                 assert (await pkb.get("/api/v1/internal/items/" + original["intake_id"])).status_code == 401
             global AU_DOWN
@@ -190,7 +217,8 @@ async def verify(bwts_checkout, base, contracts):
             assert connection.execute(f"SELECT count(*) FROM {table} WHERE pkb_item_id=%s", (original["intake_id"],)).fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM pkb_item WHERE user_id=%s AND payload->>'amount'='777'", (USER,)).fetchone()[0] == 0
     return {"result": "passed", "boundary": "BWTS ASGI -> PKB HTTP -> real PostgreSQL",
-            "upstreams": "BAS/BUPS/AU contract doubles; not production authority", "scenarios": 25}
+            "upstreams": "BAS/BUPS/AU contract doubles; not production authority",
+            "authorization": "shared intake:read, unchanged grants, item-specific whole-result denial"}
 
 
 def main():

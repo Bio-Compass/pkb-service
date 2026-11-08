@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController @RequestMapping("/api/v1/internal/items") @RequiredArgsConstructor @Validated
 public class PkbRecordController {
+    private static final int AUTHORIZATION_PAGE_SIZE = 500;
     private final PkbSourceRecordStore store;
     private final PkbRecordAuthorization authorization;
 
@@ -69,8 +70,7 @@ public class PkbRecordController {
         var windows = request.windows().stream().map(w -> new PkbQuantityWindow(w.from(),w.before())).toList();
         authorization.authorize(authority,"aggregate",request.entityType(),request.subtype(),null,List.of(),List.of(),null);
         if (windows.isEmpty()) return new TotalsResponse(List.of());
-        authorizeGroups(authority,request.entityType(),request.subtype(),store.governanceGroupsForWindows(
-                authority.userId(),authority.producer(),request.entityType(),request.subtype(),windows));
+        authorizeAggregationItems(authority, request.entityType(), request.subtype(), request.unit(), windows);
         return new TotalsResponse(store.totals(authority.userId(),authority.producer(),request.entityType(),request.subtype(),
                 request.unit(),windows).stream().map(BigDecimal::toPlainString).toList());
     }
@@ -80,17 +80,24 @@ public class PkbRecordController {
             @RequestParam @Pattern(regexp="[a-z][a-z0-9_]{0,63}") String subtype,
             @RequestParam @Pattern(regexp="mL") String unit, @RequestParam(defaultValue="3") @Min(1) @Max(3) int limit) {
         authorization.authorize(authority,"aggregate",entityType,subtype,null,List.of(),List.of(),null);
-        authorizeGroups(authority,entityType,subtype,
-                store.governanceGroups(authority.userId(),authority.producer(),entityType,subtype,null,null));
+        authorizeAggregationItems(authority, entityType, subtype, unit, List.of());
         return new ValuesResponse(store.recentQuantities(authority.userId(),authority.producer(),entityType,subtype,unit,limit)
                 .stream().map(BigDecimal::toPlainString).toList());
     }
     private void authorizeRow(PkbRecordAuthority authority,String action,PkbSourceRecord item) {
         authorization.authorize(authority,action,item.entityType(),item.subtype(),item.sourceType(),item.privacyScope(),item.consentScope(),item.itemId());
     }
-    private void authorizeGroups(PkbRecordAuthority authority,String entity,String subtype,List<PkbSourceRecordGovernance> groups) {
-        if(groups.size()>100) throw new PkbRecordFailure(503,"unavailable");
-        groups.forEach(g -> authorization.authorize(authority,"aggregate",entity,subtype,g.sourceType(),g.privacyScope(),g.consentScope(),null));
+    private void authorizeAggregationItems(PkbRecordAuthority authority, String entity, String subtype,
+            String unit, List<PkbQuantityWindow> windows) {
+        UUID afterId = null;
+        while (true) {
+            var items = store.aggregationItems(authority.userId(), authority.producer(), entity, subtype, unit,
+                    windows, afterId, AUTHORIZATION_PAGE_SIZE);
+            items.forEach(item -> authorization.authorize(authority, "aggregate", entity, subtype, item.sourceType(),
+                    item.privacyScope(), item.consentScope(), item.itemId()));
+            if (items.size() < AUTHORIZATION_PAGE_SIZE) return;
+            afterId = items.getLast().itemId();
+        }
     }
     static PkbSourceRecordCursor decodeCursor(String cursor) {
         if(cursor==null) return null;

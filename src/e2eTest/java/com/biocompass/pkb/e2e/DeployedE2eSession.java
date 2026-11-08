@@ -45,6 +45,8 @@ final class DeployedE2eSession {
         }
         required(environment, "PKB_E2E_USERNAME");
         required(environment, "PKB_E2E_PASSWORD");
+        required(environment, "PKB_E2E_SERVICE_NAME");
+        required(environment, "PKB_E2E_SERVICE_TOKEN");
     }
 
     static DeployedE2eSession login(Map<String, String> environment, HttpClient client)
