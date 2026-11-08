@@ -1,4 +1,4 @@
-# Client-neutral canonical record API — PKB #62
+# Synchronous client-neutral canonical record API — PKB #62
 
 Working-branch contract for [issue #62](https://github.com/Bio-Compass/pkb-service/issues/62).
 The accompanying central decision remains **proposed**; this is not deployment evidence.
@@ -98,7 +98,7 @@ After soft deletion, any request with its retained key returns `409 key_retired`
 also retains source identity. For example, changing 250 mL to 300 mL is not an implemented BWTS
 operation in this slice.
 
-The separate legacy command API supports history-preserving supersession, as described in
+The asynchronous command API supports history-preserving supersession, as described in
 [the service architecture](biocompass_pkb_architecture.md#updates-and-corrections). That capability
 is not exposed by this source-record contract or the BWTS adapter. A future intake-edit workflow
 requires a separately defined correction and authorization contract.

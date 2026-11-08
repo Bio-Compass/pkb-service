@@ -508,9 +508,17 @@ recovery and platform provisioning ownership; it is not deployment approval.
 
 ---
 
+## Synchronous and asynchronous APIs
+
+PKB exposes two API modes. Synchronous queries return their result in the response, and
+synchronous source-record mutations confirm the canonical transaction has committed. The
+asynchronous command API returns `202 Accepted` after Kafka acknowledges ingestion; its consumer
+obtains a fresh AU decision before the canonical transaction. Both modes are service-only and
+require independently verified workload identity and user authority.
+
 ## Updates and corrections
 
-PKB currently supports fact corrections through the legacy asynchronous command API's
+PKB currently supports fact corrections through the asynchronous command API's
 `POST /api/pkb/commands/items/{itemId}/supersessions`. A successful command creates a replacement
 with a new UUID, retains the original item, and atomically records the reciprocal `supersedes` /
 `superseded_by` links and provenance. `202 Accepted` confirms Kafka acknowledgement; the canonical

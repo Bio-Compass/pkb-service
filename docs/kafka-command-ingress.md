@@ -2,7 +2,7 @@
 
 ## Scope
 
-The command ingress is the asynchronous half of the synchronous PKB write API:
+Command ingress is the asynchronous PKB API:
 the HTTP adapter authenticates the caller, obtains an AU decision, and returns
 `202 Accepted` only after Kafka acknowledges the command. The PKB consumer then
 obtains a fresh AU decision immediately before the canonical PostgreSQL write.

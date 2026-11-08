@@ -156,9 +156,10 @@ The list includes `pkb.item.created`, `pkb.artifact.created`,
 `pkb.enrichment.requested`, and `pkb.enrichment.completed`.
 
 All fact endpoints require independent workload authentication and user authority.
-The legacy `/api/pkb/**` contract is described in [Service-only PKB access](pkb-service-access.md).
-Configure an explicitly approved legacy caller before using the examples below; the default
-empty allowlist rejects every legacy caller. The user Bearer token is introspected by
+The synchronous `/api/pkb/items` query and asynchronous `/api/pkb/commands/**` command contract
+is described in [Service-only PKB access](pkb-service-access.md).
+Configure an explicitly approved service caller before using the examples below; the default
+empty allowlist rejects every unconfigured service caller. The user Bearer token is introspected by
 the BioCompass auth service. The local profile sends tokens to
 `PKB_AUTH_INTROSPECTION_URL` with `Authorization: Bearer
 ${PKB_AUTH_INTROSPECTION_SERVICE_TOKEN}` and `X-BioCompass-Service:
