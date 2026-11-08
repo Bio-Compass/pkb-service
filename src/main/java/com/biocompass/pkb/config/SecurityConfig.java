@@ -1,8 +1,8 @@
 package com.biocompass.pkb.config;
 
 import com.biocompass.pkb.auth.PkbAuthProperties;
-import com.biocompass.pkb.auth.PkbLegacyServiceFilter;
-import com.biocompass.pkb.auth.PkbLegacyServiceProperties;
+import com.biocompass.pkb.auth.PkbWorkloadAuthenticationFilter;
+import com.biocompass.pkb.auth.PkbWorkloadAuthenticationProperties;
 import com.biocompass.pkb.authorization.PkbAuthorizationProperties;
 import com.biocompass.pkb.records.PkbRecordProperties;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({PkbLegacyServiceProperties.class, PkbRecordProperties.class,
+@EnableConfigurationProperties({PkbWorkloadAuthenticationProperties.class, PkbRecordProperties.class,
         PkbAuthProperties.class, PkbAuthorizationProperties.class})
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -37,12 +37,12 @@ public class SecurityConfig {
     }
 
     @Bean @Order(3)
-    SecurityFilterChain securityFilterChain(HttpSecurity http, PkbLegacyServiceProperties legacy,
+    SecurityFilterChain securityFilterChain(HttpSecurity http, PkbWorkloadAuthenticationProperties workload,
             PkbRecordProperties records, PkbAuthProperties auth, PkbAuthorizationProperties authorization) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .addFilterBefore(new PkbLegacyServiceFilter(legacy, records, auth, authorization),
+                .addFilterBefore(new PkbWorkloadAuthenticationFilter(workload, records, auth, authorization),
                         BearerTokenAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

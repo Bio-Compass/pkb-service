@@ -188,6 +188,9 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
 
 ## PKB #62 — service-only synchronous and asynchronous APIs
 
+- Configure the command/item-query workload allowlist with `biocompass.pkb.auth.workload.service-tokens`;
+  verify Spring binds the approved caller and an empty map denies all callers.
+
 - Verify user and staff bearer tokens alone return 401 on every item-query and asynchronous command path,
   including malformed bodies, before BAS introspection, AU, storage or Kafka submission.
 - Verify missing, wrong, unknown, duplicate or cross-purpose workload credentials fail closed;

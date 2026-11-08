@@ -21,7 +21,7 @@ class DeploymentWorkflowTest {
         var environment = map(job(ci, "e2e-test"), "env");
         Map<String, Object> configuration = new Yaml(new SafeConstructor(new LoaderOptions()))
                 .load(environment.get("SPRING_APPLICATION_JSON").toString());
-        var tokens = map(map(map(map(map(configuration, "biocompass"), "pkb"), "auth"), "legacy"), "service-tokens");
+        var tokens = map(map(map(map(map(configuration, "biocompass"), "pkb"), "auth"), "workload"), "service-tokens");
         assertThat(tokens).containsExactlyEntriesOf(Map.of(environment.get("PKB_E2E_SERVICE_NAME").toString(),
                 environment.get("PKB_E2E_SERVICE_TOKEN")));
         assertThat(map(ci, "env")).doesNotContainKey("SPRING_APPLICATION_JSON");

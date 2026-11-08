@@ -53,7 +53,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 @WebMvcTest(
         controllers = PkbItemCommandController.class,
-        properties = "biocompass.pkb.auth.legacy.service-tokens.approved-client=fixture-legacy-only",
+        properties = "biocompass.pkb.auth.workload.service-tokens.approved-client=fixture-workload-only",
         includeFilters = @ComponentScan.Filter(type = FilterType.REGEX, pattern = ".*MapperImpl"),
         excludeFilters = @ComponentScan.Filter(
                 type = FilterType.REGEX,
@@ -139,7 +139,7 @@ class PkbCommandAuthorizationWebTest {
     void forgedServiceNameNeverReachesIntrospection() throws Exception {
         mockMvc.perform(post("/api/pkb/commands/items")
                         .header("X-BioCompass-Service", "other-client")
-                        .header("X-BioCompass-Service-Token", "fixture-legacy-only")
+                        .header("X-BioCompass-Service-Token", "fixture-workload-only")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer valid-user"))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
@@ -220,7 +220,7 @@ class PkbCommandAuthorizationWebTest {
     private static MockHttpServletRequestBuilder commandRequest(UUID userId) {
         return post("/api/pkb/commands/items")
                 .header("X-BioCompass-Service", "approved-client")
-                .header("X-BioCompass-Service-Token", "fixture-legacy-only")
+                .header("X-BioCompass-Service-Token", "fixture-workload-only")
                 .queryParam("userId", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(REQUEST_BODY);

@@ -15,14 +15,14 @@ import java.util.Map;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Authenticates the workload before the legacy user bearer-token filter runs. */
-public final class PkbLegacyServiceFilter extends OncePerRequestFilter {
+/** Authenticates the workload before user bearer-token authentication runs. */
+public final class PkbWorkloadAuthenticationFilter extends OncePerRequestFilter {
     public static final String SERVICE_HEADER = "X-BioCompass-Service";
     public static final String TOKEN_HEADER = "X-BioCompass-Service-Token";
-    static final String CALLER_ATTRIBUTE = PkbLegacyServiceFilter.class.getName() + ".caller";
+    static final String CALLER_ATTRIBUTE = PkbWorkloadAuthenticationFilter.class.getName() + ".caller";
     private final Map<String, String> serviceTokens;
 
-    public PkbLegacyServiceFilter(PkbLegacyServiceProperties properties, PkbRecordProperties records,
+    public PkbWorkloadAuthenticationFilter(PkbWorkloadAuthenticationProperties properties, PkbRecordProperties records,
             PkbAuthProperties auth, PkbAuthorizationProperties authorization) {
         serviceTokens = properties.serviceTokens();
         // Validate after binding so configuration failures never render raw credential values.
@@ -30,7 +30,7 @@ public final class PkbLegacyServiceFilter extends OncePerRequestFilter {
         serviceTokens.forEach((name, token) -> {
             if (!StringUtils.hasText(name) || !name.equals(name.strip()) || !StringUtils.hasText(token)
                     || !token.equals(token.strip()) || !credentials.add(token)) {
-                throw new IllegalArgumentException("Legacy PKB callers require explicit, distinct credentials");
+                throw new IllegalArgumentException("PKB workloads require explicit, distinct credentials");
             }
         });
         var isolated = new HashSet<>(records.serviceTokens().values());
@@ -39,7 +39,7 @@ public final class PkbLegacyServiceFilter extends OncePerRequestFilter {
         isolated.add(authorization.serviceToken());
         var normalizedIsolated = isolated.stream().filter(StringUtils::hasText).map(String::strip).toList();
         if (serviceTokens.values().stream().anyMatch(normalizedIsolated::contains)) {
-            throw new IllegalArgumentException("Legacy PKB credentials must be isolated from other capabilities");
+            throw new IllegalArgumentException("PKB workload credentials must be isolated from other capabilities");
         }
     }
 

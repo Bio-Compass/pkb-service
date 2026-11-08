@@ -28,7 +28,7 @@ without echoing inputs. Supplying only a workload credential still fails user au
 User scope, staff/owner read policy and write AU checks remain enforced after both identities are
 authenticated. This change does not grant new BAS audiences, token classes or user permissions.
 
-Configure `biocompass.pkb.auth.legacy.service-tokens` in external Spring configuration. Its default
+Configure `biocompass.pkb.auth.workload.service-tokens` in external Spring configuration. Its default
 is an **empty map**, so no service caller is implicitly trusted. A structural example is:
 
 ```json
@@ -36,7 +36,7 @@ is an **empty map**, so no service caller is implicitly trusted. A structural ex
   "biocompass": {
     "pkb": {
       "auth": {
-        "legacy": {
+        "workload": {
           "service-tokens": {
             "approved-service": "<separately provisioned directed credential>"
           }

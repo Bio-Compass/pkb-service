@@ -77,11 +77,11 @@ class PkbRecordApiTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private PkbSourceRecordStore store;
     @MockitoBean private PkbAuthorizationGateway gateway;
-    @MockitoBean private OpaqueTokenIntrospector legacyIntrospector;
+    @MockitoBean private OpaqueTokenIntrospector userAuthorityIntrospector;
 
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) {
         registry.add("biocompass.pkb.records.service-tokens.producer-service", () -> WORKLOAD_TOKEN);
-        registry.add("biocompass.pkb.auth.legacy.service-tokens.producer-service", () -> "fixture-legacy-plane-only");
+        registry.add("biocompass.pkb.auth.workload.service-tokens.producer-service", () -> "fixture-command-query-only");
         registry.add("biocompass.pkb.records.authority-service-token", () -> PKB_BAS_TOKEN);
         registry.add("biocompass.pkb.records.authority-url", () -> "http://127.0.0.1:" + BAS.getAddress().getPort()
                 + "/api/v1/internal/auth/backend-authority/verify/");
@@ -115,7 +115,7 @@ class PkbRecordApiTest {
         mvc.perform(post(BASE).contentType(MediaType.APPLICATION_JSON).content("not json"))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("unauthorized"));
         assertThat(BAS_CALLS.get()).isZero();
-        verifyNoInteractions(store, gateway, legacyIntrospector);
+        verifyNoInteractions(store, gateway, userAuthorityIntrospector);
     }
 
     @Test void workloadCredentialWithoutUserAuthorityIsInsufficient() throws Exception {
@@ -134,8 +134,8 @@ class PkbRecordApiTest {
         verifyNoInteractions(store, gateway);
     }
 
-    @Test void legacyCredentialDoesNotAuthenticateOnRecordPlane() throws Exception {
-        mvc.perform(post(BASE).header("Authorization", "Bearer fixture-legacy-plane-only")
+    @Test void commandQueryCredentialDoesNotAuthenticateOnRecordPlane() throws Exception {
+        mvc.perform(post(BASE).header("Authorization", "Bearer fixture-command-query-only")
                         .header("X-BioCompass-Service", PRODUCER).header("X-BioCompass-User-Token", "user-token"))
                 .andExpect(status().isUnauthorized());
         assertThat(BAS_CALLS.get()).isZero();
@@ -173,7 +173,7 @@ class PkbRecordApiTest {
         verify(gateway).decide(policy.capture());
         assertThat(policy.getValue().actor().actorId()).isEqualTo("verified-actor");
         assertThat(policy.getValue().actor().staff()).isFalse();
-        verifyNoInteractions(legacyIntrospector);
+        verifyNoInteractions(userAuthorityIntrospector);
     }
 
     @Test void basWsgiReceivesLengthDelimitedJson() throws Exception {

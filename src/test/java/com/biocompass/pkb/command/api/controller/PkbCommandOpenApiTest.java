@@ -98,11 +98,11 @@ class PkbCommandOpenApiTest {
         var response = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         var api = objectMapper.readTree(response);
-        var legacy = api.path("security");
-        assertThat(legacy.size()).isEqualTo(1);
-        assertThat(legacy.get(0).has("bearerAuth")).isTrue();
-        assertThat(legacy.get(0).has("pkbServiceName")).isTrue();
-        assertThat(legacy.get(0).has("pkbServiceToken")).isTrue();
+        var rootSecurity = api.path("security");
+        assertThat(rootSecurity.size()).isEqualTo(1);
+        assertThat(rootSecurity.get(0).has("bearerAuth")).isTrue();
+        assertThat(rootSecurity.get(0).has("pkbServiceName")).isTrue();
+        assertThat(rootSecurity.get(0).has("pkbServiceToken")).isTrue();
         assertThat(api.path("components").path("securitySchemes").path("pkbServiceToken").path("name").asText())
                 .isEqualTo("X-BioCompass-Service-Token");
         var records = api.path("paths").path("/api/v1/internal/items").path("post").path("security");

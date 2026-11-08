@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "biocompass.pkb.auth.legacy.service-tokens.query-client=fixture-query-only",
+        properties = "biocompass.pkb.auth.workload.service-tokens.query-client=fixture-query-only",
         classes = PkbItemQueryControllerSecurityTest.TestApplication.class
 )
 class PkbItemQueryControllerSecurityTest {

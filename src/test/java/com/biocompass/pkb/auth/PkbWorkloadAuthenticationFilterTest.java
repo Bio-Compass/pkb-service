@@ -17,8 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 
-class PkbLegacyServiceFilterTest {
-    private static final String SECRET = "fixture-legacy-private";
+class PkbWorkloadAuthenticationFilterTest {
+    private static final String SECRET = "fixture-workload-private";
 
     @AfterEach void clearRequestContext() { RequestContextHolder.resetRequestAttributes(); }
 
@@ -34,24 +34,24 @@ class PkbLegacyServiceFilterTest {
     void missingWrongOrAmbiguousCredentialsFailBeforeApplication(String defect) throws Exception {
         var request = request();
         switch (defect) {
-            case "service" -> request.removeHeader(PkbLegacyServiceFilter.SERVICE_HEADER);
-            case "token" -> request.removeHeader(PkbLegacyServiceFilter.TOKEN_HEADER);
+            case "service" -> request.removeHeader(PkbWorkloadAuthenticationFilter.SERVICE_HEADER);
+            case "token" -> request.removeHeader(PkbWorkloadAuthenticationFilter.TOKEN_HEADER);
             case "wrong-service" -> {
-                request.removeHeader(PkbLegacyServiceFilter.SERVICE_HEADER);
-                request.addHeader(PkbLegacyServiceFilter.SERVICE_HEADER, "spoofed-client");
+                request.removeHeader(PkbWorkloadAuthenticationFilter.SERVICE_HEADER);
+                request.addHeader(PkbWorkloadAuthenticationFilter.SERVICE_HEADER, "spoofed-client");
             }
             case "wrong-token" -> {
-                request.removeHeader(PkbLegacyServiceFilter.TOKEN_HEADER);
-                request.addHeader(PkbLegacyServiceFilter.TOKEN_HEADER, "user-bearer-token");
+                request.removeHeader(PkbWorkloadAuthenticationFilter.TOKEN_HEADER);
+                request.addHeader(PkbWorkloadAuthenticationFilter.TOKEN_HEADER, "user-bearer-token");
             }
-            case "duplicate-service" -> request.addHeader(PkbLegacyServiceFilter.SERVICE_HEADER, "approved-client");
-            case "duplicate-token" -> request.addHeader(PkbLegacyServiceFilter.TOKEN_HEADER, SECRET);
+            case "duplicate-service" -> request.addHeader(PkbWorkloadAuthenticationFilter.SERVICE_HEADER, "approved-client");
+            case "duplicate-token" -> request.addHeader(PkbWorkloadAuthenticationFilter.TOKEN_HEADER, SECRET);
             default -> throw new AssertionError(defect);
         }
         var response = new MockHttpServletResponse();
         filter(Map.of("approved-client", SECRET)).doFilter(request, response, (r, s) -> fail("Invalid workload reached application"));
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(request.getAttribute(PkbLegacyServiceFilter.CALLER_ATTRIBUTE)).isNull();
+        assertThat(request.getAttribute(PkbWorkloadAuthenticationFilter.CALLER_ATTRIBUTE)).isNull();
     }
 
     @Test void callerIsResolvedOnlyInsideAnAuthenticatedRequestAndRemovedOnFailure() {
@@ -82,18 +82,18 @@ class PkbLegacyServiceFilterTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> filter(Map.of("first", " " + SECRET)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThat(new PkbLegacyServiceProperties(Map.of("first", SECRET)).toString()).doesNotContain(SECRET);
+        assertThat(new PkbWorkloadAuthenticationProperties(Map.of("first", SECRET)).toString()).doesNotContain(SECRET);
     }
 
     private static MockHttpServletRequest request() {
         var request = new MockHttpServletRequest("POST", "/api/pkb/commands/items");
-        request.addHeader(PkbLegacyServiceFilter.SERVICE_HEADER, "approved-client");
-        request.addHeader(PkbLegacyServiceFilter.TOKEN_HEADER, SECRET);
+        request.addHeader(PkbWorkloadAuthenticationFilter.SERVICE_HEADER, "approved-client");
+        request.addHeader(PkbWorkloadAuthenticationFilter.TOKEN_HEADER, SECRET);
         return request;
     }
 
-    private static PkbLegacyServiceFilter filter(Map<String, String> credentials) {
-        return new PkbLegacyServiceFilter(new PkbLegacyServiceProperties(credentials),
+    private static PkbWorkloadAuthenticationFilter filter(Map<String, String> credentials) {
+        return new PkbWorkloadAuthenticationFilter(new PkbWorkloadAuthenticationProperties(credentials),
                 new PkbRecordProperties(Map.of("record-client", "fixture-record"), null, "fixture-authority", null),
                 new PkbAuthProperties(new PkbAuthProperties.Introspection(null, null, "fixture-introspection", null), null),
                 new PkbAuthorizationProperties(null, null, "fixture-au", null));

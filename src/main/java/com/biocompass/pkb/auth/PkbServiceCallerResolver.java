@@ -10,7 +10,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class PkbServiceCallerResolver {
     public String resolve() {
         if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
-                && attributes.getRequest().getAttribute(PkbLegacyServiceFilter.CALLER_ATTRIBUTE) instanceof String service) {
+                && attributes.getRequest().getAttribute(PkbWorkloadAuthenticationFilter.CALLER_ATTRIBUTE) instanceof String service) {
             return service;
         }
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing authenticated PKB service caller");

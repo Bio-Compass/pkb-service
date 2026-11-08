@@ -58,7 +58,7 @@ jobs:
       PKB_E2E_SERVICE_NAME: pkb-e2e-client
       PKB_E2E_SERVICE_TOKEN: pkb-e2e-directed-secret
       SPRING_APPLICATION_JSON: >-
-        {"biocompass":{"pkb":{"auth":{"legacy":{"service-tokens":{"pkb-e2e-client":"pkb-e2e-directed-secret"}}}}}}
+        {"biocompass":{"pkb":{"auth":{"workload":{"service-tokens":{"pkb-e2e-client":"pkb-e2e-directed-secret"}}}}}}
 
     steps:
       - name: Check out repository
