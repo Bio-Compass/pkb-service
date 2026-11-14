@@ -686,3 +686,10 @@ The [record contract](pkb_record_api.md#authentication-and-policy) records the e
 The [central companion](https://github.com/Bio-Compass/bio-compass-architecture-docs/blob/codex/pkb-62-client-neutral-integration/docs/decisions/project-decision-log.md#decision-pkb62-client-neutral-records)
 remains proposed and pending publication. This branch's source does not prove deployment,
 accepted policy reconciliation or a completed production migration.
+
+## Generic payload contract follow-up — proposed
+
+The [bounded payload contract and implementation plan](pkb_payload_contract_proposal.md) proposes
+complete JSON-object payloads with shared technical limits for synchronous and asynchronous APIs.
+It separates quantity projections, BWTS domain validation and a future schema registry. This is
+contract-review work only; the implemented quantity-only synchronous path remains unchanged.

@@ -3,6 +3,9 @@
 Working-branch contract for [issue #62](https://github.com/Bio-Compass/pkb-service/issues/62).
 The accompanying central decision remains **proposed**; this is not deployment evidence.
 
+A separate [generic payload contract and plan](pkb_payload_contract_proposal.md) is proposed for
+review. It is not implemented: the synchronous API below still requires `quantity`.
+
 PKB does not classify a caller as Telegram, mobile, browser or another UI. It resolves the user
 through BAS, authenticates the producer workload independently and enforces current AU decisions.
 BWTS owns hydration semantics and is the first consumer of these generic record operations.
@@ -83,7 +86,8 @@ Source creation example (all listed fields required):
 `quantity.value` is exact decimal input, stored as a JSONB numeric `payload.amount`; output is a
 decimal string. The v1 scalar operation supports positive `mL` values only, the current runtime
 requirement. No conversions or approximate quantities are inferred. Public BWTS integer bounds
-remain BWTS-owned. The shared envelope can still describe non-quantity facts.
+remain BWTS-owned. Canonical storage can describe non-quantity facts; accepting them through
+this synchronous API belongs to the separate [payload proposal](pkb_payload_contract_proposal.md).
 
 Item output contains the input identity, category, quantity and times plus verified `user_id` and
 `source_system`; privacy/consent are enforced without being accepted as authority. BWTS maps
