@@ -692,4 +692,6 @@ accepted policy reconciliation or a completed production migration.
 The [bounded payload contract and implementation plan](pkb_payload_contract_proposal.md) proposes
 complete JSON-object payloads with shared technical limits for synchronous and asynchronous APIs.
 It separates quantity projections, BWTS domain validation and a future schema registry. This is
-contract-review work only; the implemented quantity-only synchronous path remains unchanged.
+contract-review work only. The synchronous API keeps its typed quantity and now accepts an
+optional [raw JSON extraData object](pkb_record_api.md#raw-json-extradata), stored inside the fact
+payload. Full-payload replacement and schema-registry work remain proposed.

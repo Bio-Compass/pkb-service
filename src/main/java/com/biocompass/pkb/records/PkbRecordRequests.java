@@ -2,6 +2,7 @@ package com.biocompass.pkb.records;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
@@ -25,7 +26,10 @@ public final class PkbRecordRequests {
             @NotNull @JsonProperty("recorded_at") Instant recordedAt,
             @NotBlank @Size(max=100) @JsonProperty("source_type") String sourceType,
             @NotNull @Size(max=32) @JsonProperty("privacy_scope") List<@NotBlank @Size(max=100) String> privacyScope,
-            @NotNull @Size(max=32) @JsonProperty("consent_scope") List<@NotBlank @Size(max=100) String> consentScope) {
+            @NotNull @Size(max=32) @JsonProperty("consent_scope") List<@NotBlank @Size(max=100) String> consentScope,
+            @Schema(type="object", implementation=java.util.Map.class, additionalProperties=Schema.AdditionalPropertiesValue.TRUE)
+            PkbExtraData extraData) {
+        public Create { extraData = extraData == null ? PkbExtraData.EMPTY : extraData; }
         @JsonAnySetter public void unknown(String name, Object value) { throw new IllegalArgumentException(); }
     }
     public record Window(@NotNull Instant from, @NotNull Instant before) {

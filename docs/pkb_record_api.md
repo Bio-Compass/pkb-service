@@ -4,7 +4,8 @@ Working-branch contract for [issue #62](https://github.com/Bio-Compass/pkb-servi
 The accompanying central decision remains **proposed**; this is not deployment evidence.
 
 A separate [generic payload contract and plan](pkb_payload_contract_proposal.md) is proposed for
-review. It is not implemented: the synchronous API below still requires `quantity`.
+review. Its full-payload replacement is not implemented: the synchronous API below keeps `quantity`
+and accepts optional raw JSON `extraData`.
 
 PKB does not classify a caller as Telegram, mobile, browser or another UI. It resolves the user
 through BAS, authenticates the producer workload independently and enforces current AU decisions.
@@ -64,7 +65,7 @@ Per-item AU calls make aggregate authorization work proportional to the candidat
 | GET `/recent-quantities` | `entity_type`, `subtype`, `unit`, `limit` (1–3); returns decimal strings in `values` |
 | DELETE `/{item_id}` | Non-enumerating 204 for owned, absent, foreign or already deleted target after authorization |
 
-Source creation example (all listed fields required):
+Source creation example (all fields except `extraData` are required):
 
 ```json
 {
@@ -75,6 +76,7 @@ Source creation example (all listed fields required):
   "entity_type": "nutrition_intake",
   "subtype": "water",
   "quantity": {"value": "250", "unit": "mL"},
+  "extraData": {"beverage": {"name": "Water"}, "notes": null, "tags": ["example"]},
   "observed_at": "2026-10-17T12:00:00Z",
   "recorded_at": "2026-10-18T12:00:00Z",
   "source_type": "self_reported",
@@ -92,6 +94,46 @@ this synchronous API belongs to the separate [payload proposal](pkb_payload_cont
 Item output contains the input identity, category, quantity and times plus verified `user_id` and
 `source_system`; privacy/consent are enforced without being accepted as authority. BWTS maps
 `recorded_at` to its original `created_at`; PKB ingestion time remains independent.
+
+## Raw JSON extraData
+
+`extraData` is an optional JSON object in synchronous create requests and item responses. Supply
+an object directly, not a JSON-encoded string. Nested objects, arrays, strings, exact numbers,
+booleans and null are supported. Omission, explicit null and `{}` all mean an empty object;
+create/replay, lookup and history return `extraData` as an object, including `{}` when empty.
+
+The canonical JSONB shape is `{amount, unit, extraData}` when the object is non-empty. Empty
+extra data leaves the stored `{amount, unit}` shape intact, including existing imported water
+records. Unknown nested fields are retained. JSONB preserves JSON meaning, not whitespace,
+object key order or numeric spelling. Integers and decimals remain exact without binary-float
+conversion. Unicode content is preserved; invalid Unicode and U+0000 are rejected.
+
+| Implemented bound | Limit |
+| --- | --- |
+| Compact UTF-8 extraData | 64 KiB |
+| Actual source-record POST body, including chunked/undeclared lengths | 128 KiB, read after workload/user verification |
+| Extra-data nesting / whole create JSON parser nesting | 16 / 20 object-or-array levels, root counts as 1 |
+| Extra-data values, including containers and root | 2,048 nodes |
+| Object members / array entries | 128 / 512 per container |
+| Decoded UTF-8 member name / string value | 256 bytes / 8 KiB |
+| Number | Parser number-length limit 128; normalized precision at most 64; scale from -64 through 64; rejected rather than rounded |
+
+Duplicate member names (including escaped duplicates) and trailing JSON tokens are rejected.
+The constrained, exact-number JSON mapper is scoped to source-record creation. Invalid objects
+or extra-data budgets return bounded `422 invalid_request`; an oversized actual POST body returns
+`413 payload_too_large`. Errors contain no raw data. Values such as `@type` and `$ref` remain data.
+
+Extra data is nested and cannot replace the root quantity, verified owner/producer or AU context.
+Only the outer typed quantity participates in totals/recent values. A changed nested value with
+an unchanged idempotency key/fingerprint conflicts; object-key order and numeric spellings such
+as `1`/`1.0` are equivalent. Array order and JSON value types remain significant. Extra data stays
+in the fact and is not added to identifier-only outbox events or policy requests; diagnostic
+string rendering is redacted.
+
+The async API already accepts arbitrary object `payload`; producers can place `extraData` inside
+that payload. This additive sync feature does not introduce an async top-level alias or activate
+the proposed payload-wide budgets, Kafka limits, history byte cap, schema registry or beverage/goal
+mapping. History retains its existing 500-row bound and complete cursor traversal.
 
 ## Updates and corrections
 
@@ -117,7 +159,7 @@ then amount descending, matching BWTS.
 
 Unique `(source_system,source_record_id)` identifies the source record. Separate
 `(producer,user_id,idempotency_key)` identifies replay semantics. Equal fingerprints and unchanged
-amount/unit/category/acquisition/governance replay the original identity and defaulted times.
+amount/unit/extraData/category/acquisition/governance replay the original identity and defaulted times.
 Server-generated candidate IDs and times are not compared. Conflicting reuse is 409
 `idempotency_conflict`; retained deleted keys are 409 `key_retired`; conflicting source IDs are
 409 `source_conflict`. PostgreSQL serialization, uniqueness and a single transaction cover item,

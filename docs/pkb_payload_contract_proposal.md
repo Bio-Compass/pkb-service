@@ -10,6 +10,10 @@ records the proposed cross-service boundary. This document owns the candidate wi
 limits and execution plan. Approval to prepare this proposal authorizes documentation only.
 The [current source-record contract](pkb_record_api.md) continues to describe implemented behavior.
 
+**Additive implementation, 2026-11-15:** the [current API](pkb_record_api.md#raw-json-extradata)
+keeps required `quantity` and supports bounded optional raw JSON `extraData`. That step does not
+implement this proposal's full `payload` replacement, async-wide budgets, registry or history byte cap.
+
 ## Problem and inspected baseline
 
 At [PKB revision ddea92a](https://github.com/Bio-Compass/pkb-service/tree/ddea92a99c863b0099ddbabd833ba14cafec1685),

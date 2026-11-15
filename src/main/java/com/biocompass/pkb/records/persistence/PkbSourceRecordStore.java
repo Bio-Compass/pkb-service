@@ -1,6 +1,7 @@
 package com.biocompass.pkb.records.persistence;
 
 import com.biocompass.pkb.command.event.PkbDomainEvent;
+import com.biocompass.pkb.records.PkbExtraData;
 import com.biocompass.pkb.command.event.PkbDomainEventPublisher;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -27,6 +28,7 @@ public class PkbSourceRecordStore {
             i.pkb_item_id, i.user_id, i.source_system, i.source_record_id,
             k.idempotency_key, k.fingerprint, i.entity_type, i.subtype,
             (i.payload ->> 'amount')::numeric AS amount, i.payload ->> 'unit' AS unit,
+            COALESCE(i.payload -> 'extraData', '{}'::jsonb)::text AS extra_data,
             i.observed_at, i.recorded_at, i.source_type, i.privacy_scope, i.consent_scope, i.deleted_at
             """;
     private static final String JOIN = """
@@ -41,7 +43,8 @@ public class PkbSourceRecordStore {
             rs.getObject("idempotency_key", UUID.class), rs.getString("fingerprint"),
             rs.getString("entity_type"), rs.getString("subtype"), rs.getBigDecimal("amount"), rs.getString("unit"),
             instant(rs, "observed_at"), instant(rs, "recorded_at"), rs.getString("source_type"),
-            strings(rs, "privacy_scope"), strings(rs, "consent_scope"), instant(rs, "deleted_at"));
+            strings(rs, "privacy_scope"), strings(rs, "consent_scope"), instant(rs, "deleted_at"),
+            PkbExtraData.fromJson(rs.getString("extra_data")));
 
     private final JdbcClient jdbc;
     private final PkbDomainEventPublisher eventPublisher;
@@ -76,13 +79,15 @@ public class PkbSourceRecordStore {
                             source_type, source_system, source_record_id, observed_at, recorded_at,
                             privacy_scope, consent_scope)
                         VALUES (:id, :user, :entity, :subtype, 'active',
-                            jsonb_build_object('amount', CAST(:amount AS numeric), 'unit', CAST(:unit AS text)),
+                            jsonb_build_object('amount', CAST(:amount AS numeric), 'unit', CAST(:unit AS text))
+                            || CASE WHEN CAST(:extraData AS jsonb) = '{}'::jsonb THEN '{}'::jsonb
+                                ELSE jsonb_build_object('extraData', CAST(:extraData AS jsonb)) END,
                             :sourceType, :producer, :sourceRecord, :observed, :recorded, :privacy, :consent)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("id", command.itemId()).param("user", command.userId())
                 .param("entity", command.entityType()).param("subtype", command.subtype())
-                .param("amount", command.value()).param("unit", command.unit())
+                .param("amount", command.value()).param("unit", command.unit()).param("extraData", command.extraData().json())
                 .param("sourceType", command.sourceType()).param("producer", command.producer())
                 .param("sourceRecord", command.sourceRecordId())
                 .param("observed", timestamp(command.observedAt())).param("recorded", timestamp(command.recordedAt()))
@@ -255,6 +260,7 @@ public class PkbSourceRecordStore {
 
     private static boolean equivalent(PkbSourceRecord record, PkbSourceRecordCreate command) {
         return record.fingerprint().equals(command.fingerprint())
+                && record.extraData().equals(command.extraData())
                 && record.entityType().equals(command.entityType()) && record.subtype().equals(command.subtype())
                 && record.value().compareTo(command.value()) == 0 && record.unit().equals(command.unit())
                 && record.sourceType().equals(command.sourceType())

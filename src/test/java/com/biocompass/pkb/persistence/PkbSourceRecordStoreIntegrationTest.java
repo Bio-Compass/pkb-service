@@ -1,5 +1,7 @@
 package com.biocompass.pkb.persistence;
 
+import com.biocompass.pkb.records.PkbExtraData;
+
 import com.biocompass.pkb.records.PkbRecordAuthority;
 import com.biocompass.pkb.records.PkbRecordController;
 import com.biocompass.pkb.records.PkbRecordRequests;
@@ -72,6 +74,67 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     @Test
+    void extraDataRoundTripsThroughPostgresReadsWithoutAffectingQuantityOrOutbox() {
+        var input = withExtra(input(UUID.randomUUID(), "250", START, START),
+                "{\"recipe\":{\"name\":\"tea\",\"parts\":[1,true,null]},\"amount\":999,"
+                        + "\"precise\":0.123456789012345678901234567890123456789,\"large\":1e64,"
+                        + "\"negative\":-"+"9".repeat(64)+"e64,"
+                        + "\"text\":\"'); DROP TABLE pkb_item; --\"}");
+        var created = store.create(input).item();
+        assertThat(created.extraData()).isEqualTo(input.extraData());
+        assertThat(store.find(input.userId(), PRODUCER, input.itemId()).orElseThrow().extraData()).isEqualTo(input.extraData());
+        assertThat(history(input.userId(), null, 10)).singleElement()
+                .satisfies(row -> assertThat(row.extraData()).isEqualTo(input.extraData()));
+        assertThat(jdbc.sql("SELECT jsonb_typeof(payload -> 'extraData') FROM pkb_item WHERE pkb_item_id=:id")
+                .param("id", input.itemId()).query(String.class).single()).isEqualTo("object");
+        assertThat(store.totals(input.userId(), PRODUCER, "nutrition_intake", "water", "mL",
+                List.of(new PkbQuantityWindow(START,START.plusSeconds(1))))).containsExactly(new BigDecimal("250"));
+        assertThat(count("pkb_outbox_event", "pkb_item_id", input.itemId())).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT payload::text FROM pkb_outbox_event WHERE pkb_item_id=:id")
+                .param("id", input.itemId()).query(String.class).single()).doesNotContain("recipe", "DROP TABLE", "precise");
+    }
+
+    @Test
+    void oldQuantityOnlyRowsAndNewEmptyExtraDataHaveTheSameStorageShape() {
+        var input = input(UUID.randomUUID(), "250", START, START);
+        store.create(input);
+        assertThat(jdbc.sql("SELECT jsonb_exists(payload, 'extraData') FROM pkb_item WHERE pkb_item_id=:id")
+                .param("id",input.itemId()).query(Boolean.class).single()).isFalse();
+        assertThat(store.find(input.userId(), PRODUCER, input.itemId()).orElseThrow().extraData()).isEqualTo(PkbExtraData.EMPTY);
+    }
+
+    @Test
+    void replayComparesCompleteExtraDataIndependentlyOfAssertedFingerprint() {
+        var input = withExtra(input(UUID.randomUUID(), "250", START, START), "{\"b\":2,\"a\":{\"n\":1}}");
+        var original = store.create(input).item();
+        var replay = store.create(withExtra(retry(input,"250",input.privacyScope()), "{\"a\":{\"n\":1.0},\"b\":2.0}"));
+        assertThat(replay.outcome()).isEqualTo("replayed");
+        assertThat(replay.item()).isEqualTo(original);
+        assertConflict("idempotency_conflict", () -> store.create(withExtra(retry(input,"250",input.privacyScope()),
+                "{\"a\":{\"n\":2},\"b\":2}")));
+        assertConflict("idempotency_conflict", () -> store.create(retry(input,"250",input.privacyScope())));
+        assertThat(count("pkb_outbox_event", "pkb_item_id", input.itemId())).isEqualTo(1);
+        store.delete(input.userId(), PRODUCER, input.itemId());
+        assertThat(store.findIncludingDeleted(input.userId(),PRODUCER,input.itemId()).orElseThrow().extraData())
+                .isEqualTo(input.extraData());
+        assertConflict("key_retired", () -> store.create(input));
+    }
+
+    @Test
+    void concurrentDifferentExtraDataHaveOneWinnerAndOneConflict() throws Exception {
+        var first = withExtra(input(UUID.randomUUID(),"250",START,START),"{\"value\":1}");
+        var second = withExtra(retry(first,"250",first.privacyScope()),"{\"value\":2}");
+        var gate = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var a = executor.submit(() -> { gate.await();return outcome(first); });
+            var b = executor.submit(() -> { gate.await();return outcome(second); });
+            gate.countDown();
+            assertThat(List.of(a.get(20,TimeUnit.SECONDS),b.get(20,TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("created","idempotency_conflict");
+        }
+    }
+
+    @Test
     void rollsBackCanonicalRecordAndAllDependenciesWhenOuterTransactionFails() {
         var input = input(UUID.randomUUID(), "250", START, START);
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
@@ -105,7 +168,7 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
         var changedHash = new PkbSourceRecordCreate(UUID.randomUUID(), first.userId(), first.producer(),
                 UUID.randomUUID().toString(), first.idempotencyKey(), "b".repeat(64), first.entityType(), first.subtype(),
                 first.value(), first.unit(), first.observedAt(), first.recordedAt(), first.sourceType(),
-                first.privacyScope(), first.consentScope(), first.workflowId());
+                first.privacyScope(), first.consentScope(), first.workflowId(), PkbExtraData.EMPTY);
         assertConflict("idempotency_conflict", () -> store.create(changedHash));
     }
 
@@ -147,7 +210,7 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
         var collision = new PkbSourceRecordCreate(UUID.randomUUID(), UUID.randomUUID(), first.producer(),
                 first.sourceRecordId(), UUID.randomUUID(), first.fingerprint(), first.entityType(), first.subtype(),
                 first.value(), first.unit(), first.observedAt(), first.recordedAt(), first.sourceType(),
-                first.privacyScope(), first.consentScope(), first.workflowId());
+                first.privacyScope(), first.consentScope(), first.workflowId(), PkbExtraData.EMPTY);
         assertConflict("source_conflict", () -> store.create(collision));
         assertThat(count("pkb_item", "pkb_item_id", collision.itemId())).isZero();
         assertThatThrownBy(() -> jdbc.sql("UPDATE pkb_item_idempotency SET user_id = :user WHERE pkb_item_id = :id")
@@ -167,7 +230,7 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
         store.create(new PkbSourceRecordCreate(another.itemId(), user, "other-producer", another.sourceRecordId(),
                 another.idempotencyKey(), another.fingerprint(), another.entityType(), another.subtype(), another.value(),
                 another.unit(), another.observedAt(), another.recordedAt(), another.sourceType(),
-                another.privacyScope(), another.consentScope(), another.workflowId()));
+                another.privacyScope(), another.consentScope(), another.workflowId(), PkbExtraData.EMPTY));
         assertThat(store.find(UUID.randomUUID(), PRODUCER, first.itemId())).isEmpty();
         assertThat(store.find(user, "other-producer", first.itemId())).isEmpty();
         assertThat(store.find(user, PRODUCER, deleted.itemId())).isEmpty();
@@ -366,7 +429,7 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
                                                         String producer, List<String> privacy) {
         return new PkbSourceRecordCreate(input.itemId(), user, producer, input.sourceRecordId(), input.idempotencyKey(),
                 input.fingerprint(), input.entityType(), input.subtype(), input.value(), input.unit(), input.observedAt(),
-                input.recordedAt(), input.sourceType(), privacy, input.consentScope(), input.workflowId());
+                input.recordedAt(), input.sourceType(), privacy, input.consentScope(), input.workflowId(), PkbExtraData.EMPTY);
     }
 
     private String outcome(PkbSourceRecordCreate input) {
@@ -388,11 +451,17 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
                 .param("id", id).query(Integer.class).single();
     }
 
+    private static PkbSourceRecordCreate withExtra(PkbSourceRecordCreate c, String json) {
+        return new PkbSourceRecordCreate(c.itemId(),c.userId(),c.producer(),c.sourceRecordId(),c.idempotencyKey(),
+                c.fingerprint(),c.entityType(),c.subtype(),c.value(),c.unit(),c.observedAt(),c.recordedAt(),c.sourceType(),
+                c.privacyScope(),c.consentScope(),c.workflowId(),PkbExtraData.fromJson(json));
+    }
+
     private static PkbSourceRecordCreate input(UUID user, String value, Instant observed, Instant recorded) {
         var id = UUID.randomUUID();
         return new PkbSourceRecordCreate(id, user, PRODUCER, id.toString(), UUID.randomUUID(), "a".repeat(64),
                 "nutrition_intake", "water", new BigDecimal(value), "mL", observed, recorded, "self_reported",
-                List.of("nutrition", "health"), List.of(), "decision-reference");
+                List.of("nutrition", "health"), List.of(), "decision-reference", PkbExtraData.EMPTY);
     }
 
     private static PkbSourceRecordCreate retry(PkbSourceRecordCreate first, String value, List<String> privacy) {
@@ -400,7 +469,7 @@ class PkbSourceRecordStoreIntegrationTest extends AbstractPostgresIntegrationTes
         return new PkbSourceRecordCreate(id, first.userId(), first.producer(), id.toString(), first.idempotencyKey(),
                 first.fingerprint(), first.entityType(), first.subtype(), new BigDecimal(value), first.unit(),
                 first.observedAt().plusSeconds(10), first.recordedAt().plusSeconds(10), first.sourceType(),
-                privacy, first.consentScope(), first.workflowId());
+                privacy, first.consentScope(), first.workflowId(), PkbExtraData.EMPTY);
     }
 
     private static void assertConflict(String code, Runnable operation) {

@@ -208,6 +208,21 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
   become testing defaults. Direct user-only requests fail even with a valid account, while valid
   service/user reads retain the same owner, missing-item and input-validation assertions.
 
+### Raw JSON extraData (#62)
+
+- Run `./gradlew test --tests '*PkbExtraDataTest' --tests '*PkbRecordRequestBodyTest' --tests '*PkbRecordApiTest' --tests '*PkbCommandOpenApiTest' --tests '*PkbSourceRecordStoreIntegrationTest' --no-daemon`.
+- Verify raw nested objects/arrays/booleans/null and high-precision numbers round-trip through
+  create, lookup, history and replay; OpenAPI describes an optional object, not a JSON string.
+- Verify omission/null/empty are equivalent; reordered keys and equivalent numeric spelling replay,
+  while changed nested data with the same source fingerprint conflicts, including concurrent calls.
+- Verify byte/depth/node/container/string/name/number bounds and chunked/incorrect Content-Length;
+  invalid input reaches neither AU nor storage, and user-only/wrong-workload requests still fail first.
+- Verify extra-data amount/owner fields cannot replace the real quantity or verified user; aggregates
+  remain unchanged, outbox events retain identifier-only payloads, deletion retains data/key state,
+  and rollback emits nothing. Empty objects preserve the old importable amount/unit storage shape.
+- Run full verification and `manual_tests/verify_bwts_pkb.py`; the live harness includes raw JSON
+  create/read/replay/conflict/delete with exact decimals and the existing BWTS/DST checks.
+
 ## PKB #74 — separate event DLT and replay
 
 - Run `./gradlew test --tests '*PkbDeadLetterDestinationResolverTest' --tests '*PkbKafkaEventRecoveryIntegrationTest' --tests '*PkbKafkaEventingIntegrationTest' --tests '*PkbEnrichmentConsumerConfigurationTest' --no-daemon` plus `./gradlew kafkaIngressTest --no-daemon`.

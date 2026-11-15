@@ -71,6 +71,23 @@ class PkbCommandOpenApiTest {
     private PkbArtifactCommandMapper artifactCommandMapper;
 
     @Test
+    void documentsExtraDataAsAnOptionalRawJsonObjectAlongsideRequiredQuantity() throws Exception {
+        var response = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var api = objectMapper.readTree(response);
+        var schemas = api.path("components").path("schemas");
+        var request = api.path("paths").path("/api/v1/internal/items").path("post")
+                .path("requestBody").path("content").path("application/json").path("schema");
+        var create = schemas.path(request.path("$ref").asText().substring("#/components/schemas/".length()));
+        var extra = create.path("properties").path("extraData");
+        if (extra.has("$ref")) extra = schemas.path(extra.path("$ref").asText().substring("#/components/schemas/".length()));
+        assertThat(extra.path("type").asText()).isEqualTo("object");
+        assertThat(extra.path("additionalProperties").asBoolean()).isTrue();
+        assertThat(StreamSupport.stream(create.path("required").spliterator(),false).map(JsonNode::asText).toList())
+                .contains("quantity").doesNotContain("extraData");
+    }
+
+    @Test
     void documentsCommandAndCorrelationHeadersForEveryCommandEndpoint() throws Exception {
         var response = mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())

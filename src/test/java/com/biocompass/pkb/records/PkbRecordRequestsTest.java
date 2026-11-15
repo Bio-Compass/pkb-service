@@ -93,6 +93,6 @@ class PkbRecordRequestsTest {
         var id = UUID.randomUUID();
         return new PkbSourceRecord(id, UUID.randomUUID(), "producer-service", id.toString(), UUID.randomUUID(), "a".repeat(64),
                 "nutrition_intake", "water", new BigDecimal("250.123456789012"), "mL", NOW, NOW.plusSeconds(1),
-                "device", List.of("health"), List.of("self"), null);
+                "device", List.of("health"), List.of("self"), null, PkbExtraData.EMPTY);
     }
 }

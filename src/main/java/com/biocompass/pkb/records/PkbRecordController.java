@@ -2,6 +2,7 @@ package com.biocompass.pkb.records;
 
 import com.biocompass.pkb.records.persistence.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
@@ -30,7 +31,7 @@ public class PkbRecordController {
         var result = store.create(new PkbSourceRecordCreate(request.itemId(), authority.userId(), authority.producer(),
                 request.sourceRecordId(), request.idempotencyKey(), request.fingerprint(), request.entityType(), request.subtype(),
                 request.quantity().value(), request.quantity().unit(), request.observedAt(), request.recordedAt(), request.sourceType(),
-                request.privacyScope(), request.consentScope(), decision));
+                request.privacyScope(), request.consentScope(), decision, request.extraData()));
         if ("replayed".equals(result.outcome())) authorizeRow(authority, "create", result.item());
         return new WriteResponse(result.outcome(), Item.from(result.item()));
     }
@@ -115,9 +116,10 @@ public class PkbRecordController {
             @JsonProperty("source_system") String sourceSystem,@JsonProperty("source_record_id") String sourceRecordId,
             @JsonProperty("idempotency_key") UUID idempotencyKey,String fingerprint,@JsonProperty("entity_type") String entityType,
             String subtype,Quantity quantity,@JsonProperty("observed_at") Instant observedAt,@JsonProperty("recorded_at") Instant recordedAt,
-            @JsonProperty("source_type") String sourceType) {
+            @JsonProperty("source_type") String sourceType, @Schema(type="object", implementation=java.util.Map.class, additionalProperties=Schema.AdditionalPropertiesValue.TRUE)
+            PkbExtraData extraData) {
         static Item from(PkbSourceRecord r) { return new Item(r.itemId(),r.userId(),r.sourceSystem(),r.sourceRecordId(),r.idempotencyKey(),
-                r.fingerprint(),r.entityType(),r.subtype(),new Quantity(r.value().toPlainString(),r.unit()),r.observedAt(),r.recordedAt(),r.sourceType()); }
+                r.fingerprint(),r.entityType(),r.subtype(),new Quantity(r.value().toPlainString(),r.unit()),r.observedAt(),r.recordedAt(),r.sourceType(),r.extraData()); }
     }
     public record WriteResponse(String outcome,Item item) {}
     public record Page(List<Item> items,@JsonProperty("next_cursor") String nextCursor) {}
