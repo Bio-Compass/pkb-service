@@ -82,13 +82,23 @@ class PkbKafkaCommandSubmissionServiceTest {
         assertThat(message.command()).usingRecursiveComparison().isEqualTo(command);
     }
 
+    @Test void rejectsOversizedVerifiedContextBeforePublication() {
+        var command = createItemCommand();
+        var context = new PkbKafkaCommandContext("producer",
+                new PkbAuthorizationRequest.Actor("actor", command.userId(), false, java.util.Set.of(), java.util.Set.of(), "self"),
+                "d".repeat(com.biocompass.pkb.payload.PkbPayload.MAX_COMMAND_BYTES));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> commandSubmissionGateway.submit(UUID.randomUUID(), command, context))
+                .isInstanceOfSatisfying(com.biocompass.pkb.payload.PkbPayloadFailure.class, e -> assertThat(e.status()).isEqualTo(413));
+    }
+
     private static CreatePkbItemCommand createItemCommand() {
         return new CreatePkbItemCommand(
                 UUID.randomUUID(),
                 "observation",
                 "note",
                 "active",
-                Map.of("text", "hydrated"),
+                Map.of("text", "hydrated", "precise", new java.math.BigDecimal("0.12345678901234567890123456789"),
+                        "nested", Map.of("flag", true, "parts", List.of(1, 2))),
                 "manual",
                 "note-1",
                 Instant.parse("2026-08-23T10:15:30Z"),

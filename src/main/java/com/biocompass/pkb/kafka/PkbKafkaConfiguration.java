@@ -62,7 +62,7 @@ public class PkbKafkaConfiguration {
     private static void configureValueSerializer(DefaultKafkaProducerFactory producerFactory) {
         producerFactory.setValueSerializerSupplier(() -> new DelegatingByTypeSerializer(Map.of(
                 byte[].class, new ByteArraySerializer(),
-                Object.class, new JacksonJsonSerializer<>()
+                Object.class, new JacksonJsonSerializer<>(com.biocompass.pkb.payload.PkbPayload.mapper())
         ), true));
     }
 }

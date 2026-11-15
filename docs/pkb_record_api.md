@@ -3,9 +3,9 @@
 Working-branch contract for [issue #62](https://github.com/Bio-Compass/pkb-service/issues/62).
 The accompanying central decision remains **proposed**; this is not deployment evidence.
 
-A separate [generic payload contract and plan](pkb_payload_contract_proposal.md) is proposed for
-review. Its full-payload replacement is not implemented: the synchronous API below keeps `quantity`
-and accepts optional raw JSON `extraData`.
+The [bounded payload contract](pkb_payload_contract_proposal.md) specifies the shared JSON policy
+for both API modes. Synchronous requests and responses carry one complete `payload` object;
+there are no separate `quantity` or `extraData` inputs.
 
 PKB does not classify a caller as Telegram, mobile, browser or another UI. It resolves the user
 through BAS, authenticates the producer workload independently and enforces current AU decisions.
@@ -65,7 +65,7 @@ Per-item AU calls make aggregate authorization work proportional to the candidat
 | GET `/recent-quantities` | `entity_type`, `subtype`, `unit`, `limit` (1–3); returns decimal strings in `values` |
 | DELETE `/{item_id}` | Non-enumerating 204 for owned, absent, foreign or already deleted target after authorization |
 
-Source creation example (all fields except `extraData` are required):
+Source creation example (all envelope fields and the payload object are required):
 
 ```json
 {
@@ -75,8 +75,7 @@ Source creation example (all fields except `extraData` are required):
   "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "entity_type": "nutrition_intake",
   "subtype": "water",
-  "quantity": {"value": "250", "unit": "mL"},
-  "extraData": {"beverage": {"name": "Water"}, "notes": null, "tags": ["example"]},
+  "payload": {"amount": 250, "unit": "mL", "beverage": {"name": "Water"}, "notes": null, "tags": ["example"]},
   "observed_at": "2026-10-17T12:00:00Z",
   "recorded_at": "2026-10-18T12:00:00Z",
   "source_type": "self_reported",
@@ -85,55 +84,46 @@ Source creation example (all fields except `extraData` are required):
 }
 ```
 
-`quantity.value` is exact decimal input, stored as a JSONB numeric `payload.amount`; output is a
-decimal string. The v1 scalar operation supports positive `mL` values only, the current runtime
-requirement. No conversions or approximate quantities are inferred. Public BWTS integer bounds
-remain BWTS-owned. Canonical storage can describe non-quantity facts; accepting them through
-this synchronous API belongs to the separate [payload proposal](pkb_payload_contract_proposal.md).
+`payload` is a required JSON object. Non-quantity facts need no amount or unit. Create/replay,
+lookup and history return the complete stored object. BWTS sends positive integer `amount` in
+UCUM `mL`, with its existing public bounds. Item output adds verified `user_id` and `source_system`;
+BWTS maps `recorded_at` to original `created_at`, while ingestion time remains independent.
 
-Item output contains the input identity, category, quantity and times plus verified `user_id` and
-`source_system`; privacy/consent are enforced without being accepted as authority. BWTS maps
-`recorded_at` to its original `created_at`; PKB ingestion time remains independent.
+## Raw JSON payload
 
-## Raw JSON extraData
+Supply an object directly, not a JSON-encoded string. Nested objects, arrays, strings, exact
+numbers, booleans and null are supported. JSONB preserves semantic content rather than original
+bytes, whitespace, key order or numeric spelling. Unknown nested fields are retained. Root null,
+arrays and scalars are rejected. No schema registry or runtime polymorphic/reference resolution
+is enabled.
 
-`extraData` is an optional JSON object in synchronous create requests and item responses. Supply
-an object directly, not a JSON-encoded string. Nested objects, arrays, strings, exact numbers,
-booleans and null are supported. Omission, explicit null and `{}` all mean an empty object;
-create/replay, lookup and history return `extraData` as an object, including `{}` when empty.
+Both write APIs enforce the [shared technical budgets](pkb_payload_contract_proposal.md#technical-budgets):
+64 KiB compact payload, 128 KiB actual HTTP body, 256 KiB serialized Kafka message, 16 payload / 20
+whole-message container levels, 2,048 payload nodes, 128 members per object, 512 entries per array,
+256-byte UTF-8 names, 8-KiB UTF-8 strings, exact normalized decimals with precision ≤64 and scale
+between -64 and 64, and a 128-character numeric parser limit. Duplicate/escaped duplicate names,
+trailing tokens, invalid Unicode, U+0000 and non-JSON numbers fail safely. Compressed requests are
+unsupported (415). Oversized bodies/payloads/commands return 413; structural errors return sync
+422 or async 400. Invalid Kafka messages follow permanent DLT recovery with original bytes.
 
-The canonical JSONB shape is `{amount, unit, extraData}` when the object is non-empty. Empty
-extra data leaves the stored `{amount, unit}` shape intact, including existing imported water
-records. Unknown nested fields are retained. JSONB preserves JSON meaning, not whitespace,
-object key order or numeric spelling. Integers and decimals remain exact without binary-float
-conversion. Unicode content is preserved; invalid Unicode and U+0000 are rejected.
+Payload fields never select permissions, replace the verified owner/producer, or override the
+operation, envelope entity type/subtype, acquisition or governance attributes sent to AU. The
+payload is not included in policy requests or identifier-only outbox events. The producer owns
+domain validation. A matching fingerprint cannot hide a changed nested payload; structural equality
+ignores object order and numeric spelling, but preserves array order, missing/null and JSON types.
 
-| Implemented bound | Limit |
-| --- | --- |
-| Compact UTF-8 extraData | 64 KiB |
-| Actual source-record POST body, including chunked/undeclared lengths | 128 KiB, read after workload/user verification |
-| Extra-data nesting / whole create JSON parser nesting | 16 / 20 object-or-array levels, root counts as 1 |
-| Extra-data values, including containers and root | 2,048 nodes |
-| Object members / array entries | 128 / 512 per container |
-| Decoded UTF-8 member name / string value | 256 bytes / 8 KiB |
-| Number | Parser number-length limit 128; normalized precision at most 64; scale from -64 through 64; rejected rather than rounded |
+Quantity operations explicitly project root numeric `payload.amount` and `payload.unit`. The
+current projection accepts positive `mL`, at most 30 integer and 12 fractional digits. Facts without
+the requested unit are not candidates. After every candidate is authorized, any matching fact with
+missing, nonnumeric, nonpositive or out-of-profile amount rejects the entire aggregate with 422.
+General reads still return that fact. SQL uses guarded numeric conversion, with authorization and
+calculation in the same REPEATABLE READ snapshot. No conversion or domain calculation is inferred.
 
-Duplicate member names (including escaped duplicates) and trailing JSON tokens are rejected.
-The constrained, exact-number JSON mapper is scoped to source-record creation. Invalid objects
-or extra-data budgets return bounded `422 invalid_request`; an oversized actual POST body returns
-`413 payload_too_large`. Errors contain no raw data. Values such as `@type` and `$ref` remain data.
-
-Extra data is nested and cannot replace the root quantity, verified owner/producer or AU context.
-Only the outer typed quantity participates in totals/recent values. A changed nested value with
-an unchanged idempotency key/fingerprint conflicts; object-key order and numeric spellings such
-as `1`/`1.0` are equivalent. Array order and JSON value types remain significant. Extra data stays
-in the fact and is not added to identifier-only outbox events or policy requests; diagnostic
-string rendering is redacted.
-
-The async API already accepts arbitrary object `payload`; producers can place `extraData` inside
-that payload. This additive sync feature does not introduce an async top-level alias or activate
-the proposed payload-wide budgets, Kafka limits, history byte cap, schema registry or beverage/goal
-mapping. History retains its existing 500-row bound and complete cursor traversal.
+History is bounded by 500 rows and a 2-MiB encoded response. It fetches small batches, stops before
+the first item that would exceed the byte budget, and returns a cursor for the last returned item.
+Continued traversal skips no facts; denied facts reject the page. Inventory retained data before
+activation: incompatible payloads require an owner-approved resolution, not an automatic rewrite.
+A historical payload exceeding technical bounds fails closed; no partial item is returned.
 
 ## Updates and corrections
 
@@ -159,7 +149,7 @@ then amount descending, matching BWTS.
 
 Unique `(source_system,source_record_id)` identifies the source record. Separate
 `(producer,user_id,idempotency_key)` identifies replay semantics. Equal fingerprints and unchanged
-amount/unit/extraData/category/acquisition/governance replay the original identity and defaulted times.
+payload/category/acquisition/governance replay the original identity and defaulted times.
 Server-generated candidate IDs and times are not compared. Conflicting reuse is 409
 `idempotency_conflict`; retained deleted keys are 409 `key_retired`; conflicting source IDs are
 409 `source_conflict`. PostgreSQL serialization, uniqueness and a single transaction cover item,

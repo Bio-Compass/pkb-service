@@ -19,6 +19,7 @@ import org.springframework.security.oauth2.server.resource.web.authentication.Be
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
+@org.springframework.context.annotation.Import(com.biocompass.pkb.records.PkbRecordJsonConfiguration.class)
 @EnableWebSecurity
 @EnableConfigurationProperties({PkbWorkloadAuthenticationProperties.class, PkbRecordProperties.class,
         PkbAuthProperties.class, PkbAuthorizationProperties.class})
@@ -44,6 +45,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(new PkbWorkloadAuthenticationFilter(workload, records, auth, authorization),
                         BearerTokenAuthenticationFilter.class)
+                .addFilterAfter(new com.biocompass.pkb.payload.PkbJsonBodyFilter(), BearerTokenAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .opaqueToken(opaque -> opaque.introspector(opaqueTokenIntrospector)))

@@ -208,20 +208,23 @@ The Python deployed suite was removed. Both targets reuse Java API assertions; d
   become testing defaults. Direct user-only requests fail even with a valid account, while valid
   service/user reads retain the same owner, missing-item and input-validation assertions.
 
-### Raw JSON extraData (#62)
+### Bounded raw JSON payload (#62)
 
-- Run `./gradlew test --tests '*PkbExtraDataTest' --tests '*PkbRecordRequestBodyTest' --tests '*PkbRecordApiTest' --tests '*PkbCommandOpenApiTest' --tests '*PkbSourceRecordStoreIntegrationTest' --no-daemon`.
-- Verify raw nested objects/arrays/booleans/null and high-precision numbers round-trip through
-  create, lookup, history and replay; OpenAPI describes an optional object, not a JSON string.
-- Verify omission/null/empty are equivalent; reordered keys and equivalent numeric spelling replay,
-  while changed nested data with the same source fingerprint conflicts, including concurrent calls.
-- Verify byte/depth/node/container/string/name/number bounds and chunked/incorrect Content-Length;
-  invalid input reaches neither AU nor storage, and user-only/wrong-workload requests still fail first.
-- Verify extra-data amount/owner fields cannot replace the real quantity or verified user; aggregates
-  remain unchanged, outbox events retain identifier-only payloads, deletion retains data/key state,
-  and rollback emits nothing. Empty objects preserve the old importable amount/unit storage shape.
-- Run full verification and `manual_tests/verify_bwts_pkb.py`; the live harness includes raw JSON
-  create/read/replay/conflict/delete with exact decimals and the existing BWTS/DST checks.
+- Run `./gradlew fullVerification --no-daemon`: shared payload, body, HTTP/OpenAPI, Kafka and PostgreSQL tests.
+- Verify arbitrary non-quantity and nested JSON survives create/replay/lookup/history/deletion; changed
+  content conflicts even with an unchanged fingerprint, including concurrent requests.
+- Verify byte/depth/node/container/string/name/number bounds, duplicate/escaped names, malformed JSON,
+  unsupported compression, and actual body sizes with incorrect/missing Content-Length. Authentication
+  precedes parsing; rejected input reaches neither AU nor storage. Kafka oversize admission preserves DLT bytes.
+- Verify payload fields cannot replace verified owner, envelope category or actor scopes in either API.
+  AU inputs and identifier-only outbox events exclude the complete payload and credentials.
+- Verify every quantity candidate is authorized before malformed/invalid amounts reject a whole aggregate;
+  unrelated units are excluded and general reads remain possible. Preserve the REPEATABLE READ snapshot.
+- Verify bounded history traverses every fact exactly once under the 500-row / 2-MiB response limits.
+- Run `manual_tests/verify_bwts_pkb.py` for real PKB HTTP/PostgreSQL plus BWTS ASGI and labelled BAS/BUPS/AU
+  contract doubles, including full payload create/read/replay/conflict/delete, client permissions and DST.
+- Run BWTS quality/OpenAPI and real two-database repeated-import/retention checks; unsupported snapshot
+  fields or goal-history storage must abort without target writes. No reverse transfer or automatic fallback.
 
 ## PKB #74 — separate event DLT and replay
 

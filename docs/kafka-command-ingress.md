@@ -166,3 +166,16 @@ uses the original identity. Do not bulk replay historical mixed records already 
 in the command DLT: classify them by original topic/payload and review any event migration
 to the event recovery path. Command records continue to use only command replay, including
 its independent fresh AU decision.
+
+## Shared payload boundary
+
+Item create and supersession use the [bounded JSON payload policy](pkb_payload_contract_proposal.md#technical-budgets)
+at HTTP admission, before publication and again on consumption. HTTP acknowledges only after Kafka;
+consumer-time validation and fresh AU authorization precede the canonical transaction. Exact decimal
+JSON parsing is shared with JSONB. Invalid messages are permanent failures and retain original bytes in
+DLT recovery. AU item attributes come from the envelope; payload contents never grant permissions.
+
+Before activation, verify broker/source-topic admission and DLT headroom together: DLT records need
+room for the largest admitted original message plus recovery headers. The 256-KiB application command
+limit does not protect raw externally published records from broker limits. Local acceptance verifies
+recovery of a message above that application limit without canonical writes.

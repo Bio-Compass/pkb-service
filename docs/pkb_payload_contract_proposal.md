@@ -1,18 +1,16 @@
 # Bounded generic payload contract and implementation plan
 
-**Status:** Proposed for contract review only; not implemented or approved for implementation.
+**Status:** Working-branch implementation requested on 2026-11-15; cross-service decision remains proposed.
 **Issue:** [PKB #62](https://github.com/Bio-Compass/pkb-service/issues/62)
-**Reviewed:** 2026-11-14
-**Owners:** PKB owns fact storage and transport validation; the producing service owns its domain model.
+**Owners:** PKB owns fact storage and technical validation; the producing service owns domain meaning.
 
 The [central companion](https://github.com/Bio-Compass/bio-compass-architecture-docs/blob/codex/pkb-62-client-neutral-integration/docs/decisions/project-decision-log.md#pkb62-payload-follow-up)
-records the proposed cross-service boundary. This document owns the candidate wire contract,
-limits and execution plan. Approval to prepare this proposal authorizes documentation only.
-The [current source-record contract](pkb_record_api.md) continues to describe implemented behavior.
-
-**Additive implementation, 2026-11-15:** the [current API](pkb_record_api.md#raw-json-extradata)
-keeps required `quantity` and supports bounded optional raw JSON `extraData`. That step does not
-implement this proposal's full `payload` replacement, async-wide budgets, registry or history byte cap.
+records the proposed cross-service boundary. This document owns the wire contract, limits and
+verification plan; the [source-record API](pkb_record_api.md) describes implemented behavior.
+The user authorized implementation of one complete raw JSON `payload`, without separate
+`quantity`/`extraData` inputs. This is not deployment or central architectural acceptance.
+Authorization uses verified identity, operation and envelope resource attributes such as entity
+type/subtype; arbitrary payload contents are not policy inputs and cannot override permissions.
 
 ## Problem and inspected baseline
 
@@ -48,11 +46,11 @@ not introduce a third API or automatically reconcile their other lifecycle capab
   do not create an inline-file API. Payload data, credentials and authority tokens are not logged;
   authentication headers/context are never copied into payloads, Kafka messages or outbox events.
 
-## Candidate synchronous wire change
+## Synchronous wire change
 
 Replace the required top-level `quantity` with required `payload`, whose root must be a JSON
 object. A non-quantity fact needs no amount or unit. Unknown fields inside that object are retained;
-unknown envelope fields continue to be rejected. The candidate request keeps the other existing
+unknown envelope fields continue to be rejected. The request keeps the other existing
 source-record fields and header requirements. Example payload fragment, not a complete request:
 
 ```json
@@ -87,13 +85,12 @@ spelling. Decimal values must remain exact through HTTP, persistence, Kafka and 
 integer/decimal representations without an intermediate binary floating-point conversion.
 Declared source precision or formatting, if meaningful, needs explicit domain data.
 
-## Proposed technical budgets
+## Technical budgets
 
-These are review candidates, not implemented defaults or accepted platform limits. Apply one
-versioned validation policy to both APIs, including async consumer-time validation. Centralize the
-policy without duplicating literals across validators, serializers, ingress and tests.
+These working-branch limits apply to both APIs, including async consumer-time validation. They
+are not accepted platform-wide standards. A shared policy owns normalization and validation.
 
-| Boundary | Proposed maximum and counting rule |
+| Boundary | Maximum and counting rule |
 | --- | --- |
 | HTTP request body | 128 KiB of actual UTF-8 body bytes, including the envelope; enforce while reading, including chunked requests |
 | Serialized Kafka command | 256 KiB including verified context; check before publication and before deserialization on consumption |
@@ -177,7 +174,7 @@ placement remain in [issue #40](https://github.com/Bio-Compass/pkb-service/issue
 Preserve service/user authentication and AU failure semantics and each transport's existing safe
 error envelope. Share validation rules rather than inventing another authentication/error plane.
 
-| Condition | Candidate behavior |
+| Condition | Behavior |
 | --- | --- |
 | Actual HTTP body, payload size or outgoing command size exceeded | HTTP `413` with bounded `payload_too_large`; no persistence/publication |
 | Invalid payload shape, depth, nodes, strings or numbers | Sync `422 invalid_request`; async `400 pkb_invalid_command`; no raw data in details |
@@ -213,11 +210,13 @@ records. Recipes/nutrition need a concrete BWTS model first. Existing goal-histo
 need their own compatible storage decision; generic intake JSON does not solve goal storage.
 The current water-only importer must never accept typed drinks and silently discard their fields.
 
-## Implementation sequence after contract approval
+<a id="implementation-sequence-after-contract-approval"></a>
+## Implementation and verification sequence
 
-The stages below are planned work, not implementation or validation evidence.
+The stages below describe the implementation and verification scope. Test results belong in the
+verification evidence; this checklist alone does not prove completion.
 
-1. **Review gate.** Approve payload shape, budgets/counting, error mapping, replay semantics,
+1. **Contract.** The requested implementation uses the payload shape, budgets/counting, error mapping, replay semantics,
    quantity eligibility and staged BWTS scope. Inventory existing payloads. Keep this document and
    the central companion proposed until their respective owners approve them.
 2. **Shared payload boundary.** Select the existing JSON library extension points for streaming
@@ -259,9 +258,10 @@ The stages below are planned work, not implementation or validation evidence.
   rejection of unsupported typed snapshots/goals. No beverage-readiness claim until their separate
   full mapping and migration cases pass.
 
-## Decisions to resolve in review
+## Review and activation boundary
 
-Approve or adjust the numeric budgets and history byte cap; confirm the candidate replacement of
-`quantity` and the unit-profile failure policy; agree the boundary between the initial water adapter
-update and later beverage/goal support. Registry governance and the full quantity model stay separate.
-No runtime changes, new dependencies, migrations or executable validators accompany this proposal.
+Implementation follows the requested replacement of `quantity`/`extraData` by one raw `payload`,
+with the technical budgets and projection failure policy above. The cross-service decision remains
+proposed pending its owners' review. Activation requires an explicit retained-data inventory,
+compatible deployment of the adapter and verified broker/DLT headroom. Registry governance, full
+quantities and complete beverage/goal mapping remain separate. No real-environment cutover is authorized.

@@ -138,5 +138,6 @@ The synchronous `/api/pkb/items` queries and asynchronous `/api/pkb/commands/**`
 an explicitly allowed service credential **and** BAS user bearer authority. A user or staff token alone cannot call PKB. See [Service-only access](docs/pkb-service-access.md)
 for configuration and the distinct synchronous source-record authentication contract.
 
-Synchronous source records accept optional [raw JSON `extraData`](docs/pkb_record_api.md#raw-json-extradata)
-alongside the typed quantity, with bounded input, exact decimals and replay conflict checks.
+Synchronous source records accept a required [raw JSON `payload`](docs/pkb_record_api.md#raw-json-payload),
+with shared bounds across both APIs, exact decimals and complete replay comparison. AU uses verified
+identity, operation and envelope resource attributes, independently of arbitrary payload contents.

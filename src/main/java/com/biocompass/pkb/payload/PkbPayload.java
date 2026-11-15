@@ -1,4 +1,4 @@
-package com.biocompass.pkb.records;
+package com.biocompass.pkb.payload;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
@@ -12,10 +12,12 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** An immutable, bounded JSON object; never interpreted as authority or quantity data. */
-public final class PkbExtraData {
+/** An immutable, bounded JSON object; never interpreted as authority. */
+public final class PkbPayload {
     public static final int MAX_BYTES = 64 * 1024;
     public static final int MAX_REQUEST_BYTES = 128 * 1024;
+    public static final int MAX_COMMAND_BYTES = 256 * 1024;
+    public static final int MAX_HISTORY_BYTES = 2 * 1024 * 1024;
     private static final JsonMapper MAPPER = JsonMapper.builder(JsonFactory.builder()
                     .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(20)
                             .maxStringLength(8192).maxNameLength(256).maxNumberLength(128).build())
@@ -25,26 +27,38 @@ public final class PkbExtraData {
             .findAndAddModules()
             .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS,
                     DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
-    public static final PkbExtraData EMPTY = new PkbExtraData(MAPPER.createObjectNode());
+    public static final PkbPayload EMPTY = new PkbPayload(MAPPER.createObjectNode());
     private final JsonNode value;
     private final String json;
 
     @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
-    public PkbExtraData(JsonNode value) {
+    public PkbPayload(JsonNode value) {
         if (value == null || !value.isObject()) throw invalid();
         this.value = normalize(value, 1, new int[]{0});
         this.json = MAPPER.writeValueAsString(this.value);
-        if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw invalid();
+        if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new PkbPayloadFailure(413, "payload_too_large");
     }
 
-    public static PkbExtraData fromJson(String json) { return new PkbExtraData(MAPPER.readTree(json)); }
-    static JsonMapper mapper() { return MAPPER; }
+    public static PkbPayload fromJson(String json) { return new PkbPayload(MAPPER.readTree(json)); }
+    public static JsonMapper mapper() { return MAPPER; }
+    public static PkbPayload fromMap(java.util.Map<String, Object> value) {
+        return new PkbPayload(MAPPER.valueToTree(value));
+    }
+    /** Validate bytes before a parser can autodetect another encoding or accept noncanonical UTF-8. */
+    public static void checkEncoding(byte[] bytes) {
+        try {
+            StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(bytes));
+        } catch (java.nio.charset.CharacterCodingException failure) { throw invalid(); }
+        // Raw NUL is illegal JSON; also prevents UTF-16/32 autodetection around the UTF-8 contract.
+        for (byte value : bytes) if (value == 0) throw invalid();
+    }
     public String json() { return json; }
     public boolean isEmpty() { return value.isEmpty(); }
     @JsonValue public JsonNode value() { return value.deepCopy(); }
-    @Override public boolean equals(Object other) { return other instanceof PkbExtraData data && value.equals(data.value); }
+    @Override public boolean equals(Object other) { return other instanceof PkbPayload data && value.equals(data.value); }
     @Override public int hashCode() { return value.hashCode(); }
-    @Override public String toString() { return "PkbExtraData[redacted]"; }
+    @Override public String toString() { return "PkbPayload[redacted]"; }
 
     private static JsonNode normalize(JsonNode node, int depth, int[] nodes) {
         if (++nodes[0] > 2048 || depth > 16) throw invalid();
@@ -89,5 +103,5 @@ public final class PkbExtraData {
         }
     }
 
-    private static PkbRecordFailure invalid() { return new PkbRecordFailure(422, "invalid_request"); }
+    private static PkbPayloadFailure invalid() { return new PkbPayloadFailure(422, "invalid_request"); }
 }

@@ -199,27 +199,27 @@ async def verify(bwts_checkout, base, contracts):
                     "entity_type": "nutrition_intake", "subtype": "water", "unit": "mL"})).status_code == 403
                 assert (await pkb.get("/api/v1/internal/items", headers=headers, params={"user_id": OTHER})).status_code == 422
                 assert (await pkb.get("/api/v1/internal/items/" + original["intake_id"])).status_code == 401
-                # Raw JSON is retained as data; it cannot replace quantity or verified ownership.
+                # Raw JSON is retained as data; policy uses envelope attributes and verified ownership.
                 raw_id = str(uuid4())
                 raw_headers = {**headers, "X-BioCompass-User-Token": "mobile", "Content-Type": "application/json"}
                 raw_request = {"item_id": raw_id, "source_record_id": raw_id, "idempotency_key": str(uuid4()),
                     "fingerprint": "e" * 64, "entity_type": "nutrition_intake", "subtype": "water",
-                    "quantity": {"value": "250", "unit": "mL"}, "observed_at": observed, "recorded_at": observed,
+                    "observed_at": observed, "recorded_at": observed,
                     "source_type": "self_reported", "privacy_scope": ["nutrition", "health"], "consent_scope": [],
-                    "extraData": {"amount": 999, "user_id": OTHER, "recipe": {"parts": [True, None, "tea"]},
+                    "payload": {"amount": 250, "unit": "mL", "user_id": OTHER, "recipe": {"parts": [True, None, "tea"]},
                                   "precise": "exact-decimal-placeholder"}}
                 raw_body = json.dumps(raw_request).replace('"exact-decimal-placeholder"', '0.12345678901234567890123456789')
                 created = await pkb.post("/api/v1/internal/items", headers=raw_headers, content=raw_body)
                 assert created.status_code == 200
                 raw_item = json.loads(created.text, parse_float=Decimal)["item"]
-                assert raw_item["user_id"] == USER and raw_item["quantity"] == {"value": "250", "unit": "mL"}
-                assert raw_item["extraData"]["precise"] == Decimal("0.12345678901234567890123456789")
+                assert raw_item["user_id"] == USER and raw_item["payload"]["amount"] == 250 and raw_item["payload"]["unit"] == "mL"
+                assert raw_item["payload"]["precise"] == Decimal("0.12345678901234567890123456789")
                 looked_up = await pkb.get("/api/v1/internal/items/" + raw_id, headers=raw_headers)
                 assert looked_up.status_code == 200 and json.loads(looked_up.text, parse_float=Decimal) == raw_item
                 replayed = await pkb.post("/api/v1/internal/items", headers=raw_headers, content=raw_body)
                 assert replayed.status_code == 200 and json.loads(replayed.text, parse_float=Decimal)["item"] == raw_item
                 changed = await pkb.post("/api/v1/internal/items", headers=raw_headers,
-                                         content=raw_body.replace('"amount": 999', '"amount": 998'))
+                                         content=raw_body.replace('"amount": 250', '"amount": 251'))
                 assert changed.status_code == 409
                 assert (await pkb.delete("/api/v1/internal/items/" + raw_id, headers=raw_headers)).status_code == 204
                 assert (await pkb.post("/api/v1/internal/items", headers=raw_headers, content=raw_body)).status_code == 409
@@ -244,7 +244,7 @@ async def verify(bwts_checkout, base, contracts):
     return {"result": "passed", "boundary": "BWTS ASGI -> PKB HTTP -> real PostgreSQL",
             "upstreams": "BAS/BUPS/AU contract doubles; not production authority",
             "authorization": "shared intake:read, unchanged grants, item-specific whole-result denial",
-            "extraData": "raw nested JSON, exact decimal, create/read/replay/conflict/delete/retired-key"}
+            "payload": "raw nested JSON, exact decimal, create/read/replay/conflict/delete/retired-key"}
 
 
 def main():

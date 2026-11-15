@@ -687,11 +687,11 @@ The [central companion](https://github.com/Bio-Compass/bio-compass-architecture-
 remains proposed and pending publication. This branch's source does not prove deployment,
 accepted policy reconciliation or a completed production migration.
 
-## Generic payload contract follow-up — proposed
+## Generic payload contract — proposed central decision
 
-The [bounded payload contract and implementation plan](pkb_payload_contract_proposal.md) proposes
-complete JSON-object payloads with shared technical limits for synchronous and asynchronous APIs.
-It separates quantity projections, BWTS domain validation and a future schema registry. This is
-contract-review work only. The synchronous API keeps its typed quantity and now accepts an
-optional [raw JSON extraData object](pkb_record_api.md#raw-json-extradata), stored inside the fact
-payload. Full-payload replacement and schema-registry work remain proposed.
+The [bounded payload contract](pkb_payload_contract_proposal.md) defines complete JSON-object
+payloads and shared technical limits for synchronous/asynchronous writes. PKB stores the complete
+object, while quantity operations use an explicit amount/unit projection. BWTS owns domain meaning.
+AU receives verified identity, operation and envelope category/provenance/governance, never payload
+contents as permission inputs. No separate `extraData` field is needed. The central decision remains
+proposed; schema registry, full quantities #40 and beverage/goal mapping remain separate work.

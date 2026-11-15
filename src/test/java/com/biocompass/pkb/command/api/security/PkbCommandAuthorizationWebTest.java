@@ -213,6 +213,55 @@ class PkbCommandAuthorizationWebTest {
         verify(commandSubmissionGateway, never()).submit(any(), any(), any());
     }
 
+    @Test void workloadWithoutUserAuthorityRejectsBeforeOversizeBodyAdmission() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).content(" ".repeat(128 * 1024 + 1)))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test void authenticatedOversizeBodyRejectsBeforePolicyOrSubmission() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                .content(" ".repeat(128 * 1024 + 1)))
+                .andExpect(status().is(413)).andExpect(jsonPath("$.code").value("payload_too_large"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"{\"a\":1,\"a\":2}", "{\"n\":NaN}",
+            "{\"n\":1e1000000}", "[]", "null"})
+    void asyncPayloadUsesTheSameStrictJsonPolicy(String json) throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                .header("X-Command-Id", UUID.randomUUID())
+                .content(REQUEST_BODY.replace("{\"text\":\"drink water\"}", json)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("pkb_invalid_command"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test void invalidUtf8UsesTheAsyncSafeErrorEnvelope() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION,"Bearer valid-user")
+                .content(new byte[]{'"',(byte)0xc0,(byte)0xaf,'"'}))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("pkb_invalid_command"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test void asyncRawPayloadCannotOverrideEnvelopePolicyOrVerifiedAuthority() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                .header("X-Command-Id", UUID.randomUUID())
+                .content(REQUEST_BODY.replace("{\"text\":\"drink water\"}",
+                        "{\"entity_type\":\"admin\",\"user_id\":\"spoofed\",\"permissions\":[\"all\"],"
+                                + "\"precise\":0.12345678901234567890123456789}")))
+                .andExpect(status().isAccepted());
+        var request = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
+        verify(authorizationGateway).decide(request.capture());
+        assertThat(request.getValue().actor().userId()).isEqualTo(USER_ID);
+        assertThat(request.getValue().actor().scopes()).doesNotContain("all");
+        assertThat(request.getValue().resource().attributes()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("entity_type", "observation", "subtype", "note"));
+        var command = ArgumentCaptor.forClass(com.biocompass.pkb.command.dto.PkbCommand.class);
+        verify(commandSubmissionGateway).submit(any(),command.capture(),any());
+        assertThat(((com.biocompass.pkb.command.dto.CreatePkbItemCommand) command.getValue()).payload())
+                .containsEntry("precise", new java.math.BigDecimal("0.12345678901234567890123456789"));
+    }
+
     private static PkbAuthorizationDecision decision(boolean allowed, UUID targetUserId) {
         return new PkbAuthorizationDecision(allowed, "decision-test", "write", targetUserId, Map.of());
     }

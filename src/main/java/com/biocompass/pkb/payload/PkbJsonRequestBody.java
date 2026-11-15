@@ -1,4 +1,4 @@
-package com.biocompass.pkb.records;
+package com.biocompass.pkb.payload;
 
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
@@ -10,15 +10,19 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-/** Bounded buffering for the synchronous MVC JSON reader, after authority verification. */
-final class PkbRecordRequestBody {
-    private PkbRecordRequestBody() {}
+/** Bounded buffering for the MVC JSON reader, after authority verification. */
+public final class PkbJsonRequestBody {
+    private PkbJsonRequestBody() {}
 
-    static HttpServletRequest bounded(HttpServletRequest request) throws IOException {
+    public static HttpServletRequest bounded(HttpServletRequest request) throws IOException {
         if (!"POST".equals(request.getMethod())) return request;
-        if (request.getContentLengthLong() > PkbExtraData.MAX_REQUEST_BYTES) throw tooLarge();
-        byte[] bytes = request.getInputStream().readNBytes(PkbExtraData.MAX_REQUEST_BYTES + 1);
-        if (bytes.length > PkbExtraData.MAX_REQUEST_BYTES) throw tooLarge();
+        if (request.getHeader("Content-Encoding") != null) {
+            throw new PkbPayloadFailure(415, "unsupported_media_type");
+        }
+        if (request.getContentLengthLong() > PkbPayload.MAX_REQUEST_BYTES) throw tooLarge();
+        byte[] bytes = request.getInputStream().readNBytes(PkbPayload.MAX_REQUEST_BYTES + 1);
+        if (bytes.length > PkbPayload.MAX_REQUEST_BYTES) throw tooLarge();
+        PkbPayload.checkEncoding(bytes);
         return new HttpServletRequestWrapper(request) {
             @Override public int getContentLength() { return bytes.length; }
             @Override public long getContentLengthLong() { return bytes.length; }
@@ -40,5 +44,5 @@ final class PkbRecordRequestBody {
         };
     }
 
-    private static PkbRecordFailure tooLarge() { return new PkbRecordFailure(413, "payload_too_large"); }
+    private static PkbPayloadFailure tooLarge() { return new PkbPayloadFailure(413, "payload_too_large"); }
 }
