@@ -243,6 +243,15 @@ class PkbCommandAuthorizationWebTest {
         verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
     }
 
+    @ParameterizedTest @ValueSource(strings = {"extraData", "quantity", "user_id"})
+    void asyncEnvelopeRejectsUnknownFields(String field) throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION,"Bearer valid-user")
+                .header("X-Command-Id", UUID.randomUUID())
+                .content(REQUEST_BODY.replace("\"entityType\":", "\""+field+"\":{},\"entityType\":")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("pkb_invalid_command"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
     @Test void asyncRawPayloadCannotOverrideEnvelopePolicyOrVerifiedAuthority() throws Exception {
         mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
                 .header("X-Command-Id", UUID.randomUUID())

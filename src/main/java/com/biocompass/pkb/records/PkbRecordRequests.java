@@ -12,6 +12,7 @@ import java.util.UUID;
 
 public final class PkbRecordRequests {
     private PkbRecordRequests() {}
+    @Schema(additionalProperties=Schema.AdditionalPropertiesValue.FALSE)
     public record Create(@NotNull @JsonProperty("item_id") UUID itemId,
             @NotBlank @Size(max=255) @JsonProperty("source_record_id") String sourceRecordId,
             @NotNull @JsonProperty("idempotency_key") UUID idempotencyKey,

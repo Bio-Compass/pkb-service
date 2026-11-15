@@ -79,6 +79,13 @@ class PkbCommandOpenApiTest {
         var request = api.path("paths").path("/api/v1/internal/items").path("post")
                 .path("requestBody").path("content").path("application/json").path("schema");
         var create = schemas.path(request.path("$ref").asText().substring("#/components/schemas/".length()));
+        assertThat(create.path("additionalProperties").isBoolean()).isTrue();
+        assertThat(create.path("additionalProperties").booleanValue()).isFalse();
+        var asyncRef = api.path("paths").path("/api/pkb/commands/items").path("post")
+                .path("requestBody").path("content").path("application/json").path("schema").path("$ref").asText();
+        var asyncCreate = schemas.path(asyncRef.substring("#/components/schemas/".length()));
+        assertThat(asyncCreate.path("additionalProperties").isBoolean()).isTrue();
+        assertThat(asyncCreate.path("additionalProperties").booleanValue()).isFalse();
         var extra = create.path("properties").path("payload");
         if (extra.has("$ref")) extra = schemas.path(extra.path("$ref").asText().substring("#/components/schemas/".length()));
         assertThat(extra.path("type").asText()).isEqualTo("object");

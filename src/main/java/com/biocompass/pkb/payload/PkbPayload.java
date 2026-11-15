@@ -26,7 +26,8 @@ public final class PkbPayload {
                     .disable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION).build())
             .findAndAddModules()
             .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS,
-                    DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
+                    DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
+                    DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
     public static final PkbPayload EMPTY = new PkbPayload(MAPPER.createObjectNode());
     private final JsonNode value;
     private final String json;
