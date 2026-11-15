@@ -20,6 +20,13 @@ public class PkbCommandValidator {
         if (!errors.isEmpty()) {
             throw new PkbCommandValidationException(errors);
         }
+        switch (value) {
+            case com.biocompass.pkb.command.dto.CreatePkbItemCommand item ->
+                    com.biocompass.pkb.payload.PkbPayload.fromMap(item.payload());
+            case com.biocompass.pkb.command.dto.SupersedePkbItemCommand item -> validate(item.replacementItem());
+            case com.biocompass.pkb.kafka.PkbKafkaCommandMessage message -> validate(message.command());
+            default -> { }
+        }
     }
 
     private String format(ConstraintViolation<?> violation) {

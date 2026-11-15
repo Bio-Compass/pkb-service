@@ -20,7 +20,7 @@ cross_user_read_actions := {"read", "search"}
 source_record_permissions := {
     "create": "hydration:intake:create",
     "read": "hydration:intake:read",
-    "aggregate": "hydration:summary:read",
+    "aggregate": "hydration:intake:read",
     "delete": "hydration:intake:delete",
 }
 

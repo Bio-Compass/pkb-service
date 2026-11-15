@@ -15,13 +15,22 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice(assignableTypes=PkbRecordController.class)
 public class PkbRecordExceptionHandler {
+    @ExceptionHandler(com.biocompass.pkb.payload.PkbPayloadFailure.class)
+    ResponseEntity<Error> payload(com.biocompass.pkb.payload.PkbPayloadFailure e) { return error(e.status(),e.code()); }
     @ExceptionHandler(PkbRecordFailure.class)
     ResponseEntity<Error> failure(PkbRecordFailure e) { return error(e.status(),e.code()); }
     @ExceptionHandler(PkbSourceRecordConflict.class)
     ResponseEntity<Error> conflict(PkbSourceRecordConflict e) { return error(409,e.code()); }
     @ExceptionHandler({MethodArgumentNotValidException.class,ConstraintViolationException.class,HttpMessageNotReadableException.class,
             HandlerMethodValidationException.class,MethodArgumentTypeMismatchException.class,MissingServletRequestParameterException.class})
-    ResponseEntity<Error> invalid(Exception e) { return error(422,"invalid_request"); }
+    ResponseEntity<Error> invalid(Exception e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof com.biocompass.pkb.payload.PkbPayloadFailure failure) {
+                return error(failure.status(), failure.code());
+            }
+        }
+        return error(422,"invalid_request");
+    }
     @ExceptionHandler({DataAccessException.class,PkbAuthorizationException.class})
     ResponseEntity<Error> unavailable(Exception e) { return error(503,"unavailable"); }
     private ResponseEntity<Error> error(int status,String code) {

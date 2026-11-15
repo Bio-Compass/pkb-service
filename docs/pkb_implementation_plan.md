@@ -426,3 +426,11 @@ Deferred work:
 - Production OCR, extraction, summarization, embedding, and terminology engines.
 - Advanced multilingual search ranking.
 - Full production policy authoring workflow in the BioCompass AU Service.
+
+## PKB #62 bounded raw payload
+
+The [generic payload contract](pkb_payload_contract_proposal.md#implementation-sequence-after-contract-approval)
+owns the wire change, shared limits and PKB/BWTS verification plan. The user requested implementation;
+central acceptance and deployment remain separate. Schema registry, full quantities and complete
+beverage/goal mapping are deferred. Authorization remains based on verified context and envelope
+resource attributes rather than payload fields.

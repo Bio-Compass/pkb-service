@@ -1,7 +1,9 @@
 package com.biocompass.pkb.records;
 
+import com.biocompass.pkb.payload.PkbPayload;
 import com.biocompass.pkb.records.persistence.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController @RequestMapping("/api/v1/internal/items") @RequiredArgsConstructor @Validated
 public class PkbRecordController {
+    private static final int AUTHORIZATION_PAGE_SIZE = 500;
     private final PkbSourceRecordStore store;
     private final PkbRecordAuthorization authorization;
 
@@ -28,7 +31,7 @@ public class PkbRecordController {
                 request.privacyScope(), request.consentScope(), request.itemId());
         var result = store.create(new PkbSourceRecordCreate(request.itemId(), authority.userId(), authority.producer(),
                 request.sourceRecordId(), request.idempotencyKey(), request.fingerprint(), request.entityType(), request.subtype(),
-                request.quantity().value(), request.quantity().unit(), request.observedAt(), request.recordedAt(), request.sourceType(),
+                request.payload(), request.observedAt(), request.recordedAt(), request.sourceType(),
                 request.privacyScope(), request.consentScope(), decision));
         if ("replayed".equals(result.outcome())) authorizeRow(authority, "create", result.item());
         return new WriteResponse(result.outcome(), Item.from(result.item()));
@@ -59,18 +62,40 @@ public class PkbRecordController {
             @RequestParam(required=false) @Size(max=512) String cursor) {
         if (!from.isBefore(before)) throw new PkbRecordFailure(422,"invalid_request");
         authorization.authorize(authority,"read",entityType,subtype,null,List.of(),List.of(),null);
-        var rows = store.history(authority.userId(),authority.producer(),entityType,subtype,from,before,limit+1,decodeCursor(cursor));
-        var page = rows.subList(0,Math.min(limit,rows.size()));
-        page.forEach(row -> authorizeRow(authority,"read",row));
-        return new Page(page.stream().map(Item::from).toList(),rows.size()>limit ? encodeCursor(page.getLast()) : null);
+        var page = new java.util.ArrayList<Item>();
+        var after = decodeCursor(cursor);
+        PkbSourceRecord last = null;
+        int encodedItems = 0;
+        while (true) {
+            int batchSize = Math.min(16, limit - page.size() + 1);
+            var rows = store.history(authority.userId(), authority.producer(), entityType, subtype,
+                    from, before, batchSize, after);
+            if (rows.isEmpty()) return new Page(List.copyOf(page), null);
+            for (var row : rows) {
+                if (page.size() == limit) return new Page(List.copyOf(page), encodeCursor(last));
+                authorizeRow(authority, "read", row);
+                var item = Item.from(row);
+                int itemBytes = PkbPayload.mapper().writeValueAsBytes(item).length;
+                // Include the actual envelope, escaped cursor and comma bytes in the body budget.
+                int envelope = PkbPayload.mapper().writeValueAsBytes(new Page(List.of(), encodeCursor(row))).length;
+                if ((long) encodedItems + itemBytes + page.size() + envelope > PkbPayload.MAX_HISTORY_BYTES) {
+                    if (last == null) throw new com.biocompass.pkb.payload.PkbPayloadFailure(413, "payload_too_large");
+                    return new Page(List.copyOf(page), encodeCursor(last));
+                }
+                encodedItems += itemBytes;
+                page.add(item);
+                last = row;
+                after = new PkbSourceRecordCursor(row.observedAt(), row.recordedAt(), row.itemId());
+            }
+            if (rows.size() < batchSize) return new Page(List.copyOf(page), null);
+        }
     }
     @PostMapping("/quantity-totals") @Transactional(readOnly=true, isolation=Isolation.REPEATABLE_READ)
     public TotalsResponse totals(@AuthenticationPrincipal PkbRecordAuthority authority, @RequestBody @Valid PkbRecordRequests.Totals request) {
         var windows = request.windows().stream().map(w -> new PkbQuantityWindow(w.from(),w.before())).toList();
         authorization.authorize(authority,"aggregate",request.entityType(),request.subtype(),null,List.of(),List.of(),null);
         if (windows.isEmpty()) return new TotalsResponse(List.of());
-        authorizeGroups(authority,request.entityType(),request.subtype(),store.governanceGroupsForWindows(
-                authority.userId(),authority.producer(),request.entityType(),request.subtype(),windows));
+        authorizeAggregationItems(authority, request.entityType(), request.subtype(), request.unit(), windows);
         return new TotalsResponse(store.totals(authority.userId(),authority.producer(),request.entityType(),request.subtype(),
                 request.unit(),windows).stream().map(BigDecimal::toPlainString).toList());
     }
@@ -80,17 +105,24 @@ public class PkbRecordController {
             @RequestParam @Pattern(regexp="[a-z][a-z0-9_]{0,63}") String subtype,
             @RequestParam @Pattern(regexp="mL") String unit, @RequestParam(defaultValue="3") @Min(1) @Max(3) int limit) {
         authorization.authorize(authority,"aggregate",entityType,subtype,null,List.of(),List.of(),null);
-        authorizeGroups(authority,entityType,subtype,
-                store.governanceGroups(authority.userId(),authority.producer(),entityType,subtype,null,null));
+        authorizeAggregationItems(authority, entityType, subtype, unit, List.of());
         return new ValuesResponse(store.recentQuantities(authority.userId(),authority.producer(),entityType,subtype,unit,limit)
                 .stream().map(BigDecimal::toPlainString).toList());
     }
     private void authorizeRow(PkbRecordAuthority authority,String action,PkbSourceRecord item) {
         authorization.authorize(authority,action,item.entityType(),item.subtype(),item.sourceType(),item.privacyScope(),item.consentScope(),item.itemId());
     }
-    private void authorizeGroups(PkbRecordAuthority authority,String entity,String subtype,List<PkbSourceRecordGovernance> groups) {
-        if(groups.size()>100) throw new PkbRecordFailure(503,"unavailable");
-        groups.forEach(g -> authorization.authorize(authority,"aggregate",entity,subtype,g.sourceType(),g.privacyScope(),g.consentScope(),null));
+    private void authorizeAggregationItems(PkbRecordAuthority authority, String entity, String subtype,
+            String unit, List<PkbQuantityWindow> windows) {
+        UUID afterId = null;
+        while (true) {
+            var items = store.aggregationItems(authority.userId(), authority.producer(), entity, subtype, unit,
+                    windows, afterId, AUTHORIZATION_PAGE_SIZE);
+            items.forEach(item -> authorization.authorize(authority, "aggregate", entity, subtype, item.sourceType(),
+                    item.privacyScope(), item.consentScope(), item.itemId()));
+            if (items.size() < AUTHORIZATION_PAGE_SIZE) return;
+            afterId = items.getLast().itemId();
+        }
     }
     static PkbSourceRecordCursor decodeCursor(String cursor) {
         if(cursor==null) return null;
@@ -103,14 +135,13 @@ public class PkbRecordController {
     static String encodeCursor(PkbSourceRecord item) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString((item.observedAt()+"|"+item.recordedAt()+"|"+item.itemId()).getBytes(StandardCharsets.UTF_8));
     }
-    public record Quantity(String value,String unit) {}
     public record Item(@JsonProperty("item_id") UUID itemId,@JsonProperty("user_id") UUID userId,
             @JsonProperty("source_system") String sourceSystem,@JsonProperty("source_record_id") String sourceRecordId,
             @JsonProperty("idempotency_key") UUID idempotencyKey,String fingerprint,@JsonProperty("entity_type") String entityType,
-            String subtype,Quantity quantity,@JsonProperty("observed_at") Instant observedAt,@JsonProperty("recorded_at") Instant recordedAt,
+            String subtype, @Schema(type="object", implementation=java.util.Map.class, additionalProperties=Schema.AdditionalPropertiesValue.TRUE) PkbPayload payload,@JsonProperty("observed_at") Instant observedAt,@JsonProperty("recorded_at") Instant recordedAt,
             @JsonProperty("source_type") String sourceType) {
         static Item from(PkbSourceRecord r) { return new Item(r.itemId(),r.userId(),r.sourceSystem(),r.sourceRecordId(),r.idempotencyKey(),
-                r.fingerprint(),r.entityType(),r.subtype(),new Quantity(r.value().toPlainString(),r.unit()),r.observedAt(),r.recordedAt(),r.sourceType()); }
+                r.fingerprint(),r.entityType(),r.subtype(),r.payload(),r.observedAt(),r.recordedAt(),r.sourceType()); }
     }
     public record WriteResponse(String outcome,Item item) {}
     public record Page(List<Item> items,@JsonProperty("next_cursor") String nextCursor) {}

@@ -189,6 +189,16 @@ class PkbKafkaFailureHandlingIntegrationTest extends AbstractPostgresIntegration
         verify(authorizationGateway).decide(forCommand(followingMessage.commandId()));
     }
 
+    @Test void retainsOversizedRawMessageInDltWithoutAuthorizationOrPersistence() throws Exception {
+        var bytes = " ".repeat(com.biocompass.pkb.payload.PkbPayload.MAX_COMMAND_BYTES + 1).getBytes(UTF_8);
+        long before = processedCommandRepository.count();
+        kafkaTemplate.send(COMMAND_TOPIC, "oversized-fixture", bytes).get(10, TimeUnit.SECONDS);
+        var failed = awaitDeadLetter(value -> java.util.Arrays.equals(value, bytes));
+        assertThat(failed.value()).isEqualTo(bytes);
+        assertThat(processedCommandRepository.count()).isEqualTo(before);
+        verifyNoInteractions(authorizationGateway);
+    }
+
     @Test
     void sendsAuthorizationDenialDirectlyToDeadLetterTopicAndAcceptsReplay() throws Exception {
         var message = commandMessage();

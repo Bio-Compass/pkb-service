@@ -1,5 +1,6 @@
 package com.biocompass.pkb.records;
 
+import com.biocompass.pkb.payload.PkbPayload;
 import com.biocompass.pkb.records.persistence.PkbSourceRecord;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -28,18 +29,13 @@ class PkbRecordRequestsTest {
     @BeforeAll static void validation() { factory = Validation.buildDefaultValidatorFactory(); validator = factory.getValidator(); }
     @AfterAll static void close() { factory.close(); }
 
-    @Test void acceptsPositiveExactScalarAndDocumentedUnits() {
-        assertThat(validator.validate(new PkbRecordRequests.Quantity(new BigDecimal("250.123456789012"), "mL"))).isEmpty();
-    }
-
-    @ParameterizedTest @ValueSource(strings = {"0", "-1", "0.0000000000001", "1000000000000000000000000000000"})
-    void rejectsNonPositiveOrOutOfBoundDecimals(String value) {
-        assertThat(validator.validate(new PkbRecordRequests.Quantity(new BigDecimal(value), "mL"))).isNotEmpty();
-    }
-
-    @ParameterizedTest @ValueSource(strings = {"ml", "L", "", "g"})
-    void requiresTheCurrentExactUnit(String unit) {
-        assertThat(validator.validate(new PkbRecordRequests.Quantity(BigDecimal.ONE, unit))).isNotEmpty();
+    @Test void mappingDoesNotRequireQuantityFields() {
+        var original = record();
+        var data = PkbPayload.fromJson("{\"note\":\"arbitrary fact\",\"nested\":{\"values\":[true,null]}}");
+        var fact = new PkbSourceRecord(original.itemId(), original.userId(), original.sourceSystem(),
+                original.sourceRecordId(), original.idempotencyKey(), original.fingerprint(), "observation", "note",
+                data, NOW, NOW, "self_reported", List.of(), List.of(), null);
+        assertThat(PkbRecordController.Item.from(fact).payload()).isEqualTo(data);
     }
 
     @Test void rejectsReversedAndEmptyWindowsAndBoundsWindowCount() {
@@ -60,8 +56,7 @@ class PkbRecordRequestsTest {
         assertThat(mapped.sourceRecordId()).isEqualTo(record.sourceRecordId());
         assertThat(mapped.idempotencyKey()).isEqualTo(record.idempotencyKey());
         assertThat(mapped.fingerprint()).isEqualTo(record.fingerprint());
-        assertThat(mapped.quantity().value()).isEqualTo("250.123456789012");
-        assertThat(mapped.quantity().unit()).isEqualTo("mL");
+        assertThat(mapped.payload()).isEqualTo(record.payload());
         assertThat(mapped.observedAt()).isEqualTo(NOW);
         assertThat(mapped.recordedAt()).isEqualTo(NOW.plusSeconds(1));
     }
@@ -91,8 +86,12 @@ class PkbRecordRequestsTest {
 
     private static PkbSourceRecord record() {
         var id = UUID.randomUUID();
-        return new PkbSourceRecord(id, UUID.randomUUID(), "producer-service", id.toString(), UUID.randomUUID(), "a".repeat(64),
-                "nutrition_intake", "water", new BigDecimal("250.123456789012"), "mL", NOW, NOW.plusSeconds(1),
-                "device", List.of("health"), List.of("self"), null);
+        return new PkbSourceRecord(id, UUID.randomUUID(), "producer-service", id.toString(), UUID.randomUUID(), "a".repeat(64), "nutrition_intake", "water", quantity(new BigDecimal("250.123456789012"), PkbPayload.EMPTY), NOW, NOW.plusSeconds(1), "device", List.of("health"), List.of("self"), null);
     }
+    private static PkbPayload quantity(BigDecimal amount, PkbPayload additional) {
+        var data = (tools.jackson.databind.node.ObjectNode) additional.value();
+        data.put("amount", amount); data.put("unit", "mL");
+        return new PkbPayload(data);
+    }
+
 }

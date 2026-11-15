@@ -27,6 +27,7 @@ import com.biocompass.pkb.kafka.PkbKafkaProperties;
 import com.biocompass.pkb.kafka.PkbKafkaCommandPublicationException;
 import com.biocompass.pkb.authorization.PkbWriteAuthorizationService;
 import com.biocompass.pkb.security.BioCompassActor;
+import com.biocompass.pkb.auth.PkbServiceCallerResolver;
 import com.biocompass.pkb.security.BioCompassActorAuthenticationResolver;
 import java.time.Instant;
 import java.util.List;
@@ -95,11 +96,14 @@ class PkbCommandControllerWebTest {
     @MockitoBean
     private PkbKafkaProperties kafkaProperties;
 
+    @MockitoBean
+    private PkbServiceCallerResolver serviceCallerResolver;
+
     @BeforeEach
     void configureIngressContext() {
         when(actorResolver.resolve()).thenReturn(new BioCompassActor(USER_ID, Set.of("user")));
         when(kafkaProperties.commandIngressEnabled()).thenReturn(true);
-        when(kafkaProperties.producerService()).thenReturn("pkb-service");
+        when(serviceCallerResolver.resolve()).thenReturn("approved-client");
         when(authorizationService.authorize(any(), any(), any())).thenReturn("decision-http");
     }
 

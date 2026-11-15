@@ -54,6 +54,11 @@ Important constraints and indexes:
 - A non-null `supersedes` is unique: one original item has at most one replacement. The command transaction locks the original before checking or writing; both reciprocal links and provenance commit together. Domain events are persisted in the transactional outbox with the replacement; the relay publishes to Kafka after commit.
 - Flyway V6 stops if historical duplicates exist. Inspect conflicts with `SELECT supersedes, array_agg(pkb_item_id) FROM pkb_item WHERE supersedes IS NOT NULL GROUP BY supersedes HAVING count(*) > 1;`. An operator must review the conflicting items, provenance, and reciprocal links, decide the correct history, and reconcile it before rerunning Flyway. The migration does not delete records or select a winner. PostgreSQL rolls back a failed V6 migration; rerun normally after resolution.
 - The payload must be a JSON object.
+- Source records bind the complete supplied object as JSONB. V9 removes V8's water-specific payload
+  constraint without rewriting existing data; producer validation owns domain meaning. The
+  [shared payload policy](pkb_payload_contract_proposal.md#technical-budgets) bounds both write APIs.
+  General reads never cast quantity fields. Quantity aggregation uses a separately validated
+  root amount/unit projection after item authorization.
 - GIN indexes support JSONB payload search, array scope filtering, and full-text search.
 - User-scoped B-tree indexes support common filters by status, entity type, subtype, observed time, and validity window.
 

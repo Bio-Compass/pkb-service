@@ -21,6 +21,10 @@ public class PkbKafkaCommandSubmissionService implements PkbCommandSubmissionGat
     public void submit(UUID commandId, PkbCommand<?> command, PkbKafkaCommandContext context) {
         commandValidator.validate(command);
         var message = new PkbKafkaCommandMessage(commandId, Instant.now(), context, command);
+        if (com.biocompass.pkb.payload.PkbPayload.mapper().writeValueAsBytes(message).length
+                > com.biocompass.pkb.payload.PkbPayload.MAX_COMMAND_BYTES) {
+            throw new com.biocompass.pkb.payload.PkbPayloadFailure(413, "payload_too_large");
+        }
         try {
             kafkaTemplate.sendDefault(command.userId().toString(), message).join();
         } catch (KafkaException | CompletionException exception) {

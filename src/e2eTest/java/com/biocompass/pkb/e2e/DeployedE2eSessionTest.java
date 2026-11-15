@@ -53,7 +53,8 @@ class DeployedE2eSessionTest {
         environment = new HashMap<>(Map.of(
                 "PKB_E2E_NAMESPACE", "testing", "PKB_E2E_BASE_URL", "http://127.0.0.1:18080",
                 "PKB_E2E_AUTH_URL", "http://127.0.0.1:" + server.getAddress().getPort(),
-                "PKB_E2E_USERNAME", "synthetic@example.test", "PKB_E2E_PASSWORD", "private-password"));
+                "PKB_E2E_USERNAME", "synthetic@example.test", "PKB_E2E_PASSWORD", "private-password",
+                "PKB_E2E_SERVICE_NAME", "testing-e2e-client", "PKB_E2E_SERVICE_TOKEN", "private-service-token"));
     }
 
     @AfterEach
@@ -92,6 +93,17 @@ class DeployedE2eSessionTest {
     void requiresAccountCredentials() {
         environment.put("PKB_E2E_PASSWORD", " ");
         assertThatThrownBy(() -> DeployedE2eSession.login(environment, client)).hasMessageContaining("PKB_E2E_PASSWORD");
+        assertThat(loginRequestBody).isNull();
+    }
+
+    @Test
+    void requiresIndependentWorkloadCredentialsBeforeBasLogin() {
+        for (var key : new String[]{"PKB_E2E_SERVICE_NAME", "PKB_E2E_SERVICE_TOKEN"}) {
+            var missing = new HashMap<>(environment);
+            missing.remove(key);
+            assertThatThrownBy(() -> DeployedE2eSession.login(missing, client))
+                    .hasMessageContaining(key).hasMessageNotContaining("private-service-token");
+        }
         assertThat(loginRequestBody).isNull();
     }
 
