@@ -27,6 +27,13 @@ Use this file as the living checklist for local verification. Update it when a c
 
 ## Local Service Testcases
 
+For the BAS-hosted AU boundary, AUTO-009 also checks that the actual HTTP client
+sends the complete UTF-8 JSON envelope with an exact `Content-Length` and no
+chunked transfer encoding. Verify a real call against BAS's internal AU endpoint
+with its separately configured directed credential; a valid decision must bind
+the requested action and user, and malformed/denied/unavailable responses remain
+fail-closed. The backend-authority verifier remains a separate BAS operation.
+
 Issue #35 source uniqueness is covered by `./gradlew test --tests 'com.biocompass.pkb.command.PkbCommandNormalizerTest' --tests 'com.biocompass.pkb.persistence.PkbSourceUniquenessIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbKafkaFailureHandlingIntegrationTest' --tests 'com.biocompass.pkb.persistence.PkbKafkaCommandProcessorIntegrationTest' --no-daemon`.
 The checks verify fresh and empty-database upgrade migration, the partial unique index and removal of the old source index, duplicate rejection within/across users and for superseded items, case-sensitive identifiers, different source types, multiple null IDs, actual concurrent-insert blocking, and winner-only persistence. Kafka tests verify normalized duplicate sources reach the DLT without committed item, provenance, inbox, or outbox effects; exact command-ID redelivery still writes once.
 
