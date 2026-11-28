@@ -65,6 +65,8 @@ class PkbWriteAuthorizationServiceTest {
         assertThat(request.getValue().resource().targetUserId()).isEqualTo(USER_ID);
         assertThat(request.getValue().resource().commandType()).isEqualTo("CreatePkbItemCommand");
         assertThat(request.getValue().resource().sourceType()).isEqualTo("manual");
+        assertThat(request.getValue().resource().attributes()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("entity_type", "observation", "subtype", "note"));
         assertThat(request.getValue().resource().consentScope()).containsExactly("self-read");
         assertThat(request.getValue().resource().privacyScope()).containsExactly("health");
     }

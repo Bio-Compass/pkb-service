@@ -18,6 +18,7 @@ import com.biocompass.pkb.authorization.PkbAuthorizationGateway;
 import com.biocompass.pkb.authorization.PkbAuthorizationRequest;
 import com.biocompass.pkb.authorization.PkbAuthorizationUnavailableException;
 import com.biocompass.pkb.authorization.PkbWriteAuthorizationService;
+import com.biocompass.pkb.auth.PkbServiceCallerResolver;
 import com.biocompass.pkb.command.api.controller.PkbItemCommandController;
 import com.biocompass.pkb.command.api.service.PkbCommandIngressService;
 import com.biocompass.pkb.command.PkbCommandValidator;
@@ -32,6 +33,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -50,6 +53,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 @WebMvcTest(
         controllers = PkbItemCommandController.class,
+        properties = "biocompass.pkb.auth.workload.service-tokens.approved-client=fixture-workload-only",
         includeFilters = @ComponentScan.Filter(type = FilterType.REGEX, pattern = ".*MapperImpl"),
         excludeFilters = @ComponentScan.Filter(
                 type = FilterType.REGEX,
@@ -58,6 +62,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 )
 @Import({
         SecurityConfig.class,
+        PkbServiceCallerResolver.class,
         BioCompassActorAuthenticationResolver.class,
         PkbWriteAuthorizationService.class,
         PkbCommandValidator.class,
@@ -101,12 +106,43 @@ class PkbCommandAuthorizationWebTest {
             default -> throw new BadOpaqueTokenException("Inactive BioCompass access token");
         });
         when(kafkaProperties.commandIngressEnabled()).thenReturn(true);
-        when(kafkaProperties.producerService()).thenReturn("pkb-service");
         when(authorizationGateway.decide(any())).thenAnswer(invocation -> {
             PkbAuthorizationRequest request = invocation.getArgument(0);
             boolean ownerWrite = request.actor().userId().equals(request.resource().targetUserId());
             return decision(ownerWrite, request.resource().targetUserId());
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/pkb/items", "/api/pkb/commands/items", "/api/pkb/commands/relationships",
+            "/api/pkb/commands/artifacts", "/api/pkb/commands/items/11111111-1111-1111-1111-111111111111/supersessions",
+            "/api/pkb/commands/artifacts/11111111-1111-1111-1111-111111111111/associations", "/api/future"})
+    void userTokenAloneNeverReachesIntrospectionOrApplication(String path) throws Exception {
+        mockMvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                        .contentType(MediaType.APPLICATION_JSON).content("not json"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("unauthorized_service"));
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"wrong", "valid-user", "fixture-record-only"})
+    void wrongServiceCredentialNeverReachesIntrospection(String token) throws Exception {
+        mockMvc.perform(post("/api/pkb/commands/items")
+                        .header("X-BioCompass-Service", "approved-client")
+                        .header("X-BioCompass-Service-Token", token)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-user"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test
+    void forgedServiceNameNeverReachesIntrospection() throws Exception {
+        mockMvc.perform(post("/api/pkb/commands/items")
+                        .header("X-BioCompass-Service", "other-client")
+                        .header("X-BioCompass-Service-Token", "fixture-workload-only")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-user"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
     }
 
     @Test
@@ -129,7 +165,7 @@ class PkbCommandAuthorizationWebTest {
 
         var authorizationRequest = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
         verify(authorizationGateway).decide(authorizationRequest.capture());
-        assertThat(authorizationRequest.getValue().producerService()).isEqualTo("pkb-service");
+        assertThat(authorizationRequest.getValue().producerService()).isEqualTo("approved-client");
         assertThat(authorizationRequest.getValue().actor().userId()).isEqualTo(USER_ID);
         assertThat(authorizationRequest.getValue().resource().targetUserId()).isEqualTo(USER_ID);
 
@@ -177,12 +213,72 @@ class PkbCommandAuthorizationWebTest {
         verify(commandSubmissionGateway, never()).submit(any(), any(), any());
     }
 
+    @Test void workloadWithoutUserAuthorityRejectsBeforeOversizeBodyAdmission() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).content(" ".repeat(128 * 1024 + 1)))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(opaqueTokenIntrospector, authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test void authenticatedOversizeBodyRejectsBeforePolicyOrSubmission() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                .content(" ".repeat(128 * 1024 + 1)))
+                .andExpect(status().is(413)).andExpect(jsonPath("$.code").value("payload_too_large"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"{\"a\":1,\"a\":2}", "{\"n\":NaN}",
+            "{\"n\":1e1000000}", "[]", "null"})
+    void asyncPayloadUsesTheSameStrictJsonPolicy(String json) throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                .header("X-Command-Id", UUID.randomUUID())
+                .content(REQUEST_BODY.replace("{\"text\":\"drink water\"}", json)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("pkb_invalid_command"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test void invalidUtf8UsesTheAsyncSafeErrorEnvelope() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION,"Bearer valid-user")
+                .content(new byte[]{'"',(byte)0xc0,(byte)0xaf,'"'}))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("pkb_invalid_command"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"extraData", "quantity", "user_id"})
+    void asyncEnvelopeRejectsUnknownFields(String field) throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION,"Bearer valid-user")
+                .header("X-Command-Id", UUID.randomUUID())
+                .content(REQUEST_BODY.replace("\"entityType\":", "\""+field+"\":{},\"entityType\":")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("pkb_invalid_command"));
+        verifyNoInteractions(authorizationGateway, commandSubmissionGateway);
+    }
+
+    @Test void asyncRawPayloadCannotOverrideEnvelopePolicyOrVerifiedAuthority() throws Exception {
+        mockMvc.perform(commandRequest(USER_ID).header(HttpHeaders.AUTHORIZATION, "Bearer valid-user")
+                .header("X-Command-Id", UUID.randomUUID())
+                .content(REQUEST_BODY.replace("{\"text\":\"drink water\"}",
+                        "{\"entity_type\":\"admin\",\"user_id\":\"spoofed\",\"permissions\":[\"all\"],"
+                                + "\"precise\":0.12345678901234567890123456789}")))
+                .andExpect(status().isAccepted());
+        var request = ArgumentCaptor.forClass(PkbAuthorizationRequest.class);
+        verify(authorizationGateway).decide(request.capture());
+        assertThat(request.getValue().actor().userId()).isEqualTo(USER_ID);
+        assertThat(request.getValue().actor().scopes()).doesNotContain("all");
+        assertThat(request.getValue().resource().attributes()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("entity_type", "observation", "subtype", "note"));
+        var command = ArgumentCaptor.forClass(com.biocompass.pkb.command.dto.PkbCommand.class);
+        verify(commandSubmissionGateway).submit(any(),command.capture(),any());
+        assertThat(((com.biocompass.pkb.command.dto.CreatePkbItemCommand) command.getValue()).payload())
+                .containsEntry("precise", new java.math.BigDecimal("0.12345678901234567890123456789"));
+    }
+
     private static PkbAuthorizationDecision decision(boolean allowed, UUID targetUserId) {
         return new PkbAuthorizationDecision(allowed, "decision-test", "write", targetUserId, Map.of());
     }
 
     private static MockHttpServletRequestBuilder commandRequest(UUID userId) {
         return post("/api/pkb/commands/items")
+                .header("X-BioCompass-Service", "approved-client")
+                .header("X-BioCompass-Service-Token", "fixture-workload-only")
                 .queryParam("userId", userId.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(REQUEST_BODY);

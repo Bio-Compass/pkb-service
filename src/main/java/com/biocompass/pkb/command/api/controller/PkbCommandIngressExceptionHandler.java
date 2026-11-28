@@ -18,6 +18,18 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 })
 public class PkbCommandIngressExceptionHandler {
 
+    @ExceptionHandler(com.biocompass.pkb.payload.PkbPayloadFailure.class)
+    public org.springframework.http.ResponseEntity<PkbCommandIngressErrorResponse> handlePayload(
+            com.biocompass.pkb.payload.PkbPayloadFailure failure) {
+        return org.springframework.http.ResponseEntity.status(failure.status() == 422 ? 400 : failure.status())
+                .body(new PkbCommandIngressErrorResponse(failure.status() == 422 ? "pkb_invalid_command" : failure.code(),
+                        "JSON contract rejected."));
+    }
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public PkbCommandIngressErrorResponse handleJson() {
+        return new PkbCommandIngressErrorResponse("pkb_invalid_command", "JSON contract rejected.");
+    }
     @ExceptionHandler(PkbCommandValidationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public PkbCommandIngressErrorResponse handleValidation(PkbCommandValidationException exception) {

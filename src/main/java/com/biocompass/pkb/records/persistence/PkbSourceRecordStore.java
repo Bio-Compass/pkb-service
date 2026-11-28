@@ -1,6 +1,7 @@
 package com.biocompass.pkb.records.persistence;
 
 import com.biocompass.pkb.command.event.PkbDomainEvent;
+import com.biocompass.pkb.payload.PkbPayload;
 import com.biocompass.pkb.command.event.PkbDomainEventPublisher;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -23,10 +24,14 @@ import java.util.UUID;
 /** Producer-scoped operations on canonical facts; acquisition channels remain request metadata. */
 @Repository
 public class PkbSourceRecordStore {
+    private static final String AMOUNT = "(CASE WHEN jsonb_typeof(i.payload -> 'amount') = 'number' "
+            + "THEN (i.payload ->> 'amount')::numeric ELSE NULL END)";
+    private static final String VALID_AMOUNT = "(" + AMOUNT + " > 0 AND " + AMOUNT + " < 1e30"
+            + " AND " + AMOUNT + " = trunc(" + AMOUNT + ", 12))";
     private static final String FIELDS = """
             i.pkb_item_id, i.user_id, i.source_system, i.source_record_id,
             k.idempotency_key, k.fingerprint, i.entity_type, i.subtype,
-            (i.payload ->> 'amount')::numeric AS amount, i.payload ->> 'unit' AS unit,
+            i.payload::text AS payload,
             i.observed_at, i.recorded_at, i.source_type, i.privacy_scope, i.consent_scope, i.deleted_at
             """;
     private static final String JOIN = """
@@ -39,7 +44,7 @@ public class PkbSourceRecordStore {
             rs.getObject("pkb_item_id", UUID.class), rs.getObject("user_id", UUID.class),
             rs.getString("source_system"), rs.getString("source_record_id"),
             rs.getObject("idempotency_key", UUID.class), rs.getString("fingerprint"),
-            rs.getString("entity_type"), rs.getString("subtype"), rs.getBigDecimal("amount"), rs.getString("unit"),
+            rs.getString("entity_type"), rs.getString("subtype"), PkbPayload.fromJson(rs.getString("payload")),
             instant(rs, "observed_at"), instant(rs, "recorded_at"), rs.getString("source_type"),
             strings(rs, "privacy_scope"), strings(rs, "consent_scope"), instant(rs, "deleted_at"));
 
@@ -76,13 +81,13 @@ public class PkbSourceRecordStore {
                             source_type, source_system, source_record_id, observed_at, recorded_at,
                             privacy_scope, consent_scope)
                         VALUES (:id, :user, :entity, :subtype, 'active',
-                            jsonb_build_object('amount', CAST(:amount AS numeric), 'unit', CAST(:unit AS text)),
+                            CAST(:payload AS jsonb),
                             :sourceType, :producer, :sourceRecord, :observed, :recorded, :privacy, :consent)
                         ON CONFLICT DO NOTHING
                         """)
                 .param("id", command.itemId()).param("user", command.userId())
                 .param("entity", command.entityType()).param("subtype", command.subtype())
-                .param("amount", command.value()).param("unit", command.unit())
+                .param("payload", command.payload().json())
                 .param("sourceType", command.sourceType()).param("producer", command.producer())
                 .param("sourceRecord", command.sourceRecordId())
                 .param("observed", timestamp(command.observedAt())).param("recorded", timestamp(command.recordedAt()))
@@ -150,6 +155,7 @@ public class PkbSourceRecordStore {
                                    String unit, List<PkbQuantityWindow> windows) {
         validateWindows(windows);
         if (windows.isEmpty()) return List.of();
+        validateQuantityCandidates(userId, producer, entityType, subtype, unit, windows);
         var values = new StringBuilder();
         for (int i = 0; i < windows.size(); i++) {
             if (i > 0) values.append(",");
@@ -157,10 +163,10 @@ public class PkbSourceRecordStore {
                     .append(" AS timestamptz), CAST(:before").append(i).append(" AS timestamptz))");
         }
         var query = category(owned(jdbc.sql("""
-                        SELECT COALESCE(SUM((i.payload ->> 'amount')::numeric), 0) AS total
+                        SELECT COALESCE(SUM(%s), 0) AS total
                         FROM (VALUES %s) AS w(position, starts_at, ends_at)
                         LEFT JOIN pkb_item i ON
-                        """.formatted(values) + OWNED + ACTIVE
+                        """.formatted(AMOUNT, values) + OWNED + ACTIVE
                         + " AND i.entity_type = :entity AND i.subtype = :subtype AND i.payload ->> 'unit' = :unit"
                         + " AND i.observed_at >= w.starts_at AND i.observed_at < w.ends_at"
                         + " GROUP BY w.position ORDER BY w.position"), userId, producer), entityType, subtype)
@@ -175,31 +181,21 @@ public class PkbSourceRecordStore {
     public List<BigDecimal> recentQuantities(UUID userId, String producer, String entityType,
                                              String subtype, String unit, int limit) {
         if (limit < 1 || limit > 3) throw new IllegalArgumentException("Invalid recent quantity limit");
+        validateQuantityCandidates(userId, producer, entityType, subtype, unit, List.of());
         return category(owned(jdbc.sql("""
-                        SELECT (i.payload ->> 'amount')::numeric AS amount FROM pkb_item i WHERE
-                        """ + OWNED + ACTIVE
+                        SELECT %s AS amount FROM pkb_item i WHERE
+                        """.formatted(AMOUNT) + OWNED + ACTIVE
                         + " AND i.entity_type = :entity AND i.subtype = :subtype AND i.payload ->> 'unit' = :unit"
-                        + " GROUP BY (i.payload ->> 'amount')::numeric"
+                        + " GROUP BY " + AMOUNT
                         + " ORDER BY MAX(i.observed_at) DESC, MAX(i.recorded_at) DESC, amount DESC LIMIT :limit"), userId, producer), entityType, subtype)
                 .param("unit", unit).param("limit", limit).query((rs, row) -> rs.getBigDecimal("amount")).list();
     }
 
-    public List<PkbSourceRecordGovernance> governanceGroups(UUID userId, String producer, String entityType,
-                                                           String subtype, Instant from, Instant before) {
-        var query = category(owned(jdbc.sql("""
-                        SELECT DISTINCT i.source_type, i.privacy_scope, i.consent_scope FROM pkb_item i WHERE
-                        """ + OWNED + ACTIVE + " AND i.entity_type = :entity AND i.subtype = :subtype"
-                        + (from == null ? "" : " AND i.observed_at >= :from")
-                        + (before == null ? "" : " AND i.observed_at < :before") + " LIMIT 101"), userId, producer), entityType, subtype);
-        if (from != null) query.param("from", timestamp(from));
-        if (before != null) query.param("before", timestamp(before));
-        return governanceGroups(query);
-    }
-
-    public List<PkbSourceRecordGovernance> governanceGroupsForWindows(UUID userId, String producer,
-            String entityType, String subtype, List<PkbQuantityWindow> windows) {
+    /** Bounded keyset pages of all contributing items; empty windows mean all observation times. */
+    public List<PkbSourceRecordAccess> aggregationItems(UUID userId, String producer, String entityType,
+            String subtype, String unit, List<PkbQuantityWindow> windows, UUID afterId, int limit) {
         validateWindows(windows);
-        if (windows.isEmpty()) return List.of();
+        if (limit < 1 || limit > 500) throw new IllegalArgumentException("Invalid aggregation page limit");
         var predicates = new StringBuilder();
         for (int index = 0; index < windows.size(); index++) {
             if (index > 0) predicates.append(" OR ");
@@ -207,23 +203,38 @@ public class PkbSourceRecordStore {
                     .append(" AND i.observed_at < :before").append(index).append(")");
         }
         var query = category(owned(jdbc.sql("""
-                        SELECT DISTINCT i.source_type, i.privacy_scope, i.consent_scope FROM pkb_item i WHERE
+                        SELECT i.pkb_item_id, i.source_type, i.privacy_scope, i.consent_scope FROM pkb_item i WHERE
                         """ + OWNED + ACTIVE + " AND i.entity_type = :entity AND i.subtype = :subtype"
-                        + " AND (" + predicates + ") LIMIT 101"), userId, producer), entityType, subtype);
+                        + " AND i.payload ->> 'unit' = :unit"
+                        + (windows.isEmpty() ? "" : " AND (" + predicates + ")")
+                        + (afterId == null ? "" : " AND i.pkb_item_id > :after")
+                        + " ORDER BY i.pkb_item_id LIMIT :limit"), userId, producer), entityType, subtype)
+                .param("unit", unit).param("limit", limit);
+        if (afterId != null) query.param("after", afterId);
         for (int index = 0; index < windows.size(); index++) {
             query.param("from" + index, timestamp(windows.get(index).from()))
                     .param("before" + index, timestamp(windows.get(index).before()));
         }
-        return governanceGroups(query);
+        return query.query((rs, row) -> new PkbSourceRecordAccess(rs.getObject("pkb_item_id", UUID.class),
+                rs.getString("source_type"), strings(rs, "privacy_scope"), strings(rs, "consent_scope"))).list();
     }
 
-    private static List<PkbSourceRecordGovernance> governanceGroups(JdbcClient.StatementSpec query) {
-        var groups = query.query((rs, row) -> new PkbSourceRecordGovernance(rs.getString("source_type"),
-                strings(rs, "privacy_scope"), strings(rs, "consent_scope"))).list();
-        if (groups.size() > 100) {
-            throw new org.springframework.dao.DataAccessResourceFailureException("Governance group limit exceeded");
+    /** Call only after authorizing the complete candidate set, in the calculation's snapshot. */
+    private void validateQuantityCandidates(UUID userId, String producer, String entity, String subtype,
+            String unit, List<PkbQuantityWindow> windows) {
+        var times = new StringBuilder();
+        for (int n = 0; n < windows.size(); n++) {
+            if (n > 0) times.append(" OR ");
+            times.append("(i.observed_at >= :from").append(n).append(" AND i.observed_at < :before").append(n).append(")");
         }
-        return groups;
+        var query = category(owned(jdbc.sql("SELECT EXISTS(SELECT 1 FROM pkb_item i WHERE " + OWNED + ACTIVE
+                + " AND i.entity_type = :entity AND i.subtype = :subtype AND i.payload ->> 'unit' = :unit"
+                + (windows.isEmpty() ? "" : " AND (" + times + ")")
+                + " AND (" + VALID_AMOUNT + ") IS NOT TRUE)"), userId, producer), entity, subtype).param("unit", unit);
+        for (int n = 0; n < windows.size(); n++) {
+            query.param("from" + n, timestamp(windows.get(n).from())).param("before" + n, timestamp(windows.get(n).before()));
+        }
+        if (query.query(Boolean.class).single()) throw new com.biocompass.pkb.records.PkbRecordFailure(422, "invalid_request");
     }
 
     private static void validateWindows(List<PkbQuantityWindow> windows) {
@@ -269,8 +280,8 @@ public class PkbSourceRecordStore {
 
     private static boolean equivalent(PkbSourceRecord record, PkbSourceRecordCreate command) {
         return record.fingerprint().equals(command.fingerprint())
+                && record.payload().equals(command.payload())
                 && record.entityType().equals(command.entityType()) && record.subtype().equals(command.subtype())
-                && record.value().compareTo(command.value()) == 0 && record.unit().equals(command.unit())
                 && record.sourceType().equals(command.sourceType())
                 && new HashSet<>(record.privacyScope()).equals(new HashSet<>(command.privacyScope()))
                 && new HashSet<>(record.consentScope()).equals(new HashSet<>(command.consentScope()));

@@ -90,8 +90,16 @@ public class PkbWriteAuthorizationService {
                 sourceType,
                 consentScope,
                 privacyScope,
-                identifiers);
+                identifiers,
+                switch (command) {
+                    case CreatePkbItemCommand item -> Map.of("entity_type", category(item.entityType()), "subtype", category(item.subtype()));
+                    case SupersedePkbItemCommand item -> Map.of("entity_type", category(item.replacementItem().entityType()),
+                            "subtype", category(item.replacementItem().subtype()));
+                    default -> Map.of();
+                });
     }
+
+    private static String category(String value) { return value.strip().toLowerCase(java.util.Locale.ROOT); }
 
     private static void validate(PkbAuthorizationDecision decision, UUID targetUserId) {
         if (!decision.allowed()) {

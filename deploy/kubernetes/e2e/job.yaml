@@ -64,6 +64,16 @@ spec:
                 secretKeyRef:
                   name: ${JOB_NAME}-credentials
                   key: password
+            - name: PKB_E2E_SERVICE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${JOB_NAME}-credentials
+                  key: service-name
+            - name: PKB_E2E_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ${JOB_NAME}-credentials
+                  key: service-token
           volumeMounts:
             - name: reports
               mountPath: /reports

@@ -24,7 +24,8 @@ class RunClusterE2eTest {
             "PKB_E2E_NAMESPACE", "testing", "GITHUB_RUN_ID", "123", "GITHUB_RUN_ATTEMPT", "1",
             "GITHUB_SHA", "a".repeat(40),
             "PKB_E2E_RUNNER_IMAGE", "ghcr.io/bio-compass/pkb-service-e2e@sha256:" + "b".repeat(64),
-            "PKB_E2E_USERNAME", "fixture@example.test", "PKB_E2E_PASSWORD", "private-password"));
+            "PKB_E2E_USERNAME", "fixture@example.test", "PKB_E2E_PASSWORD", "private-password",
+            "PKB_E2E_SERVICE_NAME", "testing-e2e-client", "PKB_E2E_SERVICE_TOKEN", "private-service-token"));
     @TempDir
     Path reports;
 
@@ -35,13 +36,27 @@ class RunClusterE2eTest {
         assertThat(Files.readString(reports.resolve("TEST-junit-jupiter.xml"))).contains("tests=\"1\"");
         assertThat(kube.inputs).anySatisfy(input -> assertThat(input)
                 .contains("\"kind\":\"Secret\"", "\"ownerReferences\"", "00000000-0000-0000-0000-000000000000")
-                .doesNotContain("private-password"));
+                .contains("\"service-name\":\"" + Base64.getEncoder().encodeToString("testing-e2e-client".getBytes(StandardCharsets.UTF_8)) + "\"",
+                        "\"service-token\":\"" + Base64.getEncoder().encodeToString("private-service-token".getBytes(StandardCharsets.UTF_8)) + "\"")
+                .doesNotContain("private-password", "private-service-token"));
         assertThat(kube.calls).allSatisfy(call -> assertThat(call).contains("--namespace=testing")
-                .doesNotContain("exec", "port-forward", "private-password"));
+                .doesNotContain("exec", "port-forward", "private-password", "private-service-token"));
         assertThat(kube.calls.getLast()).contains("delete", "job", "--cascade=foreground");
         assertThat(kube.calls.stream().filter(call -> call.contains("wait"))).singleElement()
                 .satisfies(call -> assertThat(call).contains("--request-timeout=0",
                         "--for=jsonpath={.status.conditions}", "job/pkb-e2e-123-1"));
+    }
+
+    @Test
+    void missingWorkloadCredentialsFailBeforeCreatingResources() {
+        for (var key : List.of("PKB_E2E_SERVICE_NAME", "PKB_E2E_SERVICE_TOKEN")) {
+            var value = environment.remove(key);
+            var kube = new FakeKubernetes();
+            assertThatThrownBy(() -> execute(kube, Duration.ofSeconds(5)))
+                    .hasMessageContaining(key).hasMessageNotContaining("private-service-token");
+            assertThat(kube.calls).isEmpty();
+            environment.put(key, value);
+        }
     }
 
     @Test
@@ -107,6 +122,48 @@ class RunClusterE2eTest {
     }
 
     @Test
+    void redactsWorkloadAndUserCredentialsFromLogsAndDecodedXml() throws Exception {
+        var token = "private&service<token";
+        environment.put("PKB_E2E_SERVICE_TOKEN", token);
+        var xml = "<testsuite tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\">"
+                + "<testcase name=\"testing-e2e-client\"><system-out>private-password "
+                + "private&amp;service&lt;token</system-out></testcase></testsuite>";
+        var encodedToken = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
+        var kube = new FakeKubernetes();
+        kube.logs = "fixture@example.test private-password testing-e2e-client " + token + " " + encodedToken
+                + "\n" + logs("TEST-redacted.xml", xml);
+        execute(kube, Duration.ofSeconds(5));
+        var safeLog = Files.readString(reports.resolve("job.log"));
+        var safeXml = Files.readString(reports.resolve("TEST-redacted.xml"));
+        assertThat(safeLog).doesNotContain("PKB_E2E_REPORT_BEGIN", token, encodedToken,
+                "testing-e2e-client", "private-password", "fixture@example.test").contains("[REDACTED]");
+        assertThat(safeXml).doesNotContain(token, "private&amp;service&lt;token", "testing-e2e-client", "private-password")
+                .contains("[REDACTED]", "tests=\"1\"");
+    }
+
+    @Test
+    void redactsMultilinePasswordsAcrossOriginalLogLineEndings() throws Exception {
+        var password = "private\r\nmultiline-password";
+        environment.put("PKB_E2E_PASSWORD", password);
+        var kube = new FakeKubernetes();
+        kube.logs = "diagnostic: " + password + "\r\n" + kube.logs;
+        execute(kube, Duration.ofSeconds(5));
+        assertThat(Files.readString(reports.resolve("job.log")))
+                .doesNotContain(password, "multiline-password").contains("diagnostic: [REDACTED]");
+    }
+
+    @Test
+    void redactsServiceCredentialsSplitBetweenAdjacentCdataNodes() throws Exception {
+        var kube = new FakeKubernetes();
+        kube.logs = logs("TEST-split.xml", "<testsuite tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\">"
+                + "<testcase name=\"workload\"><system-out><![CDATA[private-]]><![CDATA[service-token]]>"
+                + "</system-out></testcase></testsuite>");
+        execute(kube, Duration.ofSeconds(5));
+        assertThat(Files.readString(reports.resolve("TEST-split.xml")))
+                .doesNotContain("private-", "service-token").contains("[REDACTED]");
+    }
+
+    @Test
     void failedCleanupCannotReportAPassingGate() {
         var kube = new FakeKubernetes();
         kube.failCleanup = true;
@@ -151,7 +208,7 @@ class RunClusterE2eTest {
                 .doesNotContainKeys("hostNetwork", "hostPID");
         var manifest = RunClusterE2e.render(Files.readString(TEMPLATE), environment);
         assertThat(manifest).contains("value: http://pkb-service", "value: http://bio-compass-auth", "secretKeyRef:")
-                .doesNotContain("private-password", "KUBECONFIG", "hostPort", "LoadBalancer", "NodePort");
+                .doesNotContain("private-password", "private-service-token", "KUBECONFIG", "hostPort", "LoadBalancer", "NodePort");
     }
 
     private void execute(FakeKubernetes kube, Duration timeout) throws Exception {

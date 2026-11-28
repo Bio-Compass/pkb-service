@@ -11,6 +11,10 @@ import com.biocompass.pkb.command.api.service.PkbCommandIngressService;
 import com.biocompass.pkb.command.api.web.PkbCommandHeaderArgumentResolver;
 import com.biocompass.pkb.command.api.web.PkbCommandWebConfig;
 import com.biocompass.pkb.config.OpenApiConfig;
+import com.biocompass.pkb.records.PkbRecordController;
+import com.biocompass.pkb.records.PkbRecordAuthorityClient;
+import com.biocompass.pkb.records.PkbRecordAuthorization;
+import com.biocompass.pkb.records.persistence.PkbSourceRecordStore;
 import com.biocompass.pkb.config.SecurityConfig;
 import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.Test;
@@ -53,6 +57,10 @@ class PkbCommandOpenApiTest {
     @MockitoBean
     private PkbCommandIngressService commandIngressService;
 
+    @MockitoBean private PkbRecordAuthorityClient recordAuthority;
+    @MockitoBean private PkbRecordAuthorization recordAuthorization;
+    @MockitoBean private PkbSourceRecordStore sourceRecordStore;
+
     @MockitoBean
     private PkbItemCommandMapper itemCommandMapper;
 
@@ -61,6 +69,30 @@ class PkbCommandOpenApiTest {
 
     @MockitoBean
     private PkbArtifactCommandMapper artifactCommandMapper;
+
+    @Test
+    void documentsOneRequiredRawJsonPayload() throws Exception {
+        var response = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var api = objectMapper.readTree(response);
+        var schemas = api.path("components").path("schemas");
+        var request = api.path("paths").path("/api/v1/internal/items").path("post")
+                .path("requestBody").path("content").path("application/json").path("schema");
+        var create = schemas.path(request.path("$ref").asText().substring("#/components/schemas/".length()));
+        assertThat(create.path("additionalProperties").isBoolean()).isTrue();
+        assertThat(create.path("additionalProperties").booleanValue()).isFalse();
+        var asyncRef = api.path("paths").path("/api/pkb/commands/items").path("post")
+                .path("requestBody").path("content").path("application/json").path("schema").path("$ref").asText();
+        var asyncCreate = schemas.path(asyncRef.substring("#/components/schemas/".length()));
+        assertThat(asyncCreate.path("additionalProperties").isBoolean()).isTrue();
+        assertThat(asyncCreate.path("additionalProperties").booleanValue()).isFalse();
+        var extra = create.path("properties").path("payload");
+        if (extra.has("$ref")) extra = schemas.path(extra.path("$ref").asText().substring("#/components/schemas/".length()));
+        assertThat(extra.path("type").asText()).isEqualTo("object");
+        assertThat(extra.path("additionalProperties").asBoolean()).isTrue();
+        assertThat(StreamSupport.stream(create.path("required").spliterator(),false).map(JsonNode::asText).toList())
+                .contains("payload").doesNotContain("extraData", "quantity");
+    }
 
     @Test
     void documentsCommandAndCorrelationHeadersForEveryCommandEndpoint() throws Exception {
@@ -83,6 +115,26 @@ class PkbCommandOpenApiTest {
                     .as("OpenAPI must not advertise 200 for %s", path)
                     .isFalse();
         }
+    }
+
+    @Test
+    void documentsWorkloadAndUserAuthorityAsJointRequirementsForEachPlane() throws Exception {
+        var response = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var api = objectMapper.readTree(response);
+        var rootSecurity = api.path("security");
+        assertThat(rootSecurity.size()).isEqualTo(1);
+        assertThat(rootSecurity.get(0).has("bearerAuth")).isTrue();
+        assertThat(rootSecurity.get(0).has("pkbServiceName")).isTrue();
+        assertThat(rootSecurity.get(0).has("pkbServiceToken")).isTrue();
+        assertThat(api.path("components").path("securitySchemes").path("pkbServiceToken").path("name").asText())
+                .isEqualTo("X-BioCompass-Service-Token");
+        var records = api.path("paths").path("/api/v1/internal/items").path("post").path("security");
+        assertThat(records.size()).isEqualTo(1);
+        assertThat(records.get(0).has("recordProducerBearer")).isTrue();
+        assertThat(records.get(0).has("pkbServiceName")).isTrue();
+        assertThat(records.get(0).has("recordUserAuthority")).isTrue();
+        assertThat(records.get(0).has("pkbServiceToken")).isFalse();
     }
 
     private static void assertHeader(JsonNode parameters, String name, boolean required) {
@@ -109,6 +161,7 @@ class PkbCommandOpenApiTest {
     @Import({
             SecurityConfig.class,
             OpenApiConfig.class,
+            PkbRecordController.class,
             PkbCommandHeaderArgumentResolver.class,
             PkbCommandWebConfig.class,
             PkbItemCommandController.class,
