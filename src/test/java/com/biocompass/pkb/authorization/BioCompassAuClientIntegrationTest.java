@@ -31,6 +31,8 @@ class BioCompassAuClientIntegrationTest {
     private static final AtomicReference<String> authorizationHeader = new AtomicReference<>();
     private static final AtomicReference<String> serviceHeader = new AtomicReference<>();
     private static final AtomicReference<String> requestBody = new AtomicReference<>();
+    private static final AtomicReference<String> contentLengthHeader = new AtomicReference<>();
+    private static final AtomicReference<String> transferEncodingHeader = new AtomicReference<>();
     private static final HttpServer server = startServer();
 
     @Autowired
@@ -63,6 +65,8 @@ class BioCompassAuClientIntegrationTest {
         authorizationHeader.set(null);
         serviceHeader.set(null);
         requestBody.set(null);
+        contentLengthHeader.set(null);
+        transferEncodingHeader.set(null);
     }
 
     @AfterAll
@@ -81,6 +85,9 @@ class BioCompassAuClientIntegrationTest {
         assertThat(requestBody.get())
                 .contains("command_id", "producer_service", "actor_id", "prior_decision_reference")
                 .doesNotContain("end-user-bearer-token");
+        assertThat(contentLengthHeader.get())
+                .isEqualTo(Integer.toString(requestBody.get().getBytes(StandardCharsets.UTF_8).length));
+        assertThat(transferEncodingHeader.get()).isNull();
     }
 
     @Test
@@ -151,6 +158,8 @@ class BioCompassAuClientIntegrationTest {
             httpServer.createContext("/v1/decision", exchange -> {
                 authorizationHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
                 serviceHeader.set(exchange.getRequestHeaders().getFirst("X-BioCompass-Service"));
+                contentLengthHeader.set(exchange.getRequestHeaders().getFirst("Content-Length"));
+                transferEncodingHeader.set(exchange.getRequestHeaders().getFirst("Transfer-Encoding"));
                 requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
                 var body = responseBody.get().getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");

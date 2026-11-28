@@ -3,6 +3,7 @@ package com.biocompass.pkb.authorization;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -23,7 +24,9 @@ public class BioCompassAuClient implements PkbAuthorizationGateway {
         var requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.timeout());
         requestFactory.setReadTimeout(properties.timeout());
-        this.restClient = restClientBuilder.clone().requestFactory(requestFactory).build();
+        // BAS uses Django WSGI, which needs Content-Length for the JSON body.
+        this.restClient = restClientBuilder.clone()
+                .requestFactory(new BufferingClientHttpRequestFactory(requestFactory)).build();
     }
 
     @Override
